@@ -20,6 +20,58 @@ model User {
   otp       String?
   otpExpiry DateTime?
   hashedRt  String?
+
+  pets      Pet[]
+}
+
+model Pet {
+  id               Int       @id @default(autoincrement())
+  ownerId          Int
+  owner            User      @relation(fields: [ownerId], references: [id])
+  species          String    @default("DOG") // Enum SpeciesType
+  name             String
+  sex              String    // Enum PetSexType
+  birthDate        DateTime
+  breedId          String
+  isSpayedNeutered Boolean   @default(false)
+  avatarMediaId    Int?      @unique
+  avatarMedia      PetMedia? @relation("PetAvatar", fields: [avatarMediaId], references: [id])
+
+  media  PetMedia[] @relation("PetGallery")
+  events DogEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PetMedia {
+  id          Int      @id @default(autoincrement())
+  petId       Int
+  pet         Pet      @relation("PetGallery", fields: [petId], references: [id])
+  type        String   // Enum PetMediaType
+  objectKey   String
+  contentType String
+  sizeBytes   Int
+  width       Int?
+  height      Int?
+  durationMs  Int?
+
+  petAvatar Pet? @relation("PetAvatar")
+
+  createdAt DateTime @default(now())
+}
+
+model DogEvent {
+  id          Int      @id @default(autoincrement())
+  petId       Int
+  pet         Pet      @relation(fields: [petId], references: [id])
+  eventType   String   // Enum DogVocalEventType
+  stateType   String?  // Enum DogStateType
+  contextType String?  // Enum DogContextType
+  confidence  Float?
+  audioUrl    String?
+
+  createdAt DateTime @default(now())
 }
 
 model BlacklistedToken {

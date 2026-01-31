@@ -4,11 +4,11 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule) as INestApplication;
-  
+  const app = await NestFactory.create(AppModule);
+
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
-  
+
   app.enableCors({
     origin: '*', // For dev, allow all
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
