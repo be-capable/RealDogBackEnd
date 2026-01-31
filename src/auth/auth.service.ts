@@ -5,6 +5,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
@@ -19,17 +20,33 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private mailService: MailService,
   ) {}
 
+  /**
+   * Registers a new user.
+   *
+   * 1. Checks if a user with the provided email already exists.
+   * 2. Hashes the password using bcrypt.
+   * 3. Creates the user record in the database.
+   * 4. Generates Access and Refresh tokens.
+   * 5. Stores the hashed Refresh Token in the database.
+   *
+   * @param registerDto - Registration data (email, password, name).
+   * @returns User object and tokens (accessToken, refreshToken).
+   * @throws ConflictException if email is already in use.
+   */
   async register(registerDto: RegisterDto) {
     const { email, password, name } = registerDto;
+    const normalizedEmail = String(email ?? '').trim().toLowerCase();
 
     const existingUser = await this.prisma.user.findUnique({
-      where: { email },
+      where: { email: normalizedEmail },
     });
 
     if (existingUser) {
@@ -40,7 +57,7 @@ export class AuthService {
 
     const user = await this.prisma.user.create({
       data: {
-        email,
+        email: normalizedEmail,
         password: hashedPassword,
         name,
       },
@@ -59,20 +76,42 @@ export class AuthService {
     };
   }
 
+  /**
+   * Authenticates a user.
+   *
+   * 1. Finds user by email.
+   * 2. Validates password hash.
+   * 3. Generates new tokens.
+   * 4. Updates Refresh Token hash in DB.
+   *
+   * @param loginDto - Login credentials.
+   * @returns User object and tokens.
+   * @throws UnauthorizedException if credentials are invalid.
+   */
   async login(loginDto: LoginDto) {
     const { email, password } = loginDto;
+    const normalizedEmail = String(email ?? '').trim().toLowerCase();
 
-    const user = await this.prisma.user.findUnique({
-      where: { email },
-    });
+    const user =
+      (await this.prisma.user.findUnique({
+        where: { email: normalizedEmail },
+      })) ??
+      (await this.prisma.user.findUnique({
+        where: { email },
+      }));
 
     if (!user) {
+      const at = normalizedEmail.indexOf('@');
+      const maskedEmail =
+        at > 0 ? `${normalizedEmail.slice(0, 2)}***${normalizedEmail.slice(at)}` : `${normalizedEmail.slice(0, 2)}***`;
+      this.logger.warn(JSON.stringify({ msg: 'auth.login.user_not_found', email: maskedEmail }));
       throw new UnauthorizedException('Invalid email or password');
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
+      this.logger.warn(JSON.stringify({ msg: 'auth.login.password_mismatch', userId: user.id }));
       throw new UnauthorizedException('Invalid email or password');
     }
 
@@ -89,6 +128,11 @@ export class AuthService {
     };
   }
 
+  /**
+   * Logs out a user by removing their Refresh Token hash.
+   *
+   * @param userId - ID of the user to logout.
+   */
   async logout(userId: number) {
     await this.prisma.user.updateMany({
       where: {
@@ -100,6 +144,18 @@ export class AuthService {
     return { message: 'Logged out successfully' };
   }
 
+  /**
+   * Refreshes tokens using a valid Refresh Token.
+   *
+   * 1. Validates user existence and stored hash.
+   * 2. Compares provided RT with stored hash.
+   * 3. Generates new pair of tokens.
+   * 4. Rotates the RT hash in DB (Refresh Token Rotation).
+   *
+   * @param userId - User ID extracted from RT payload.
+   * @param rt - The Refresh Token string.
+   * @returns New Access and Refresh tokens.
+   */
   async refreshTokens(userId: number, rt: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -141,9 +197,14 @@ export class AuthService {
     };
   }
 
+  /**
+   * Initiates password reset flow.
+   * Generates OTP and sends via email.
+   */
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
     const { email } = forgotPasswordDto;
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const normalizedEmail = String(email ?? '').trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (!user) {
       throw new NotFoundException('User not found');
@@ -158,13 +219,17 @@ export class AuthService {
       data: { otp, otpExpiry },
     });
 
-    const previewUrl = await this.mailService.sendOtp(email, otp);
+    const previewUrl = await this.mailService.sendOtp(normalizedEmail, otp);
     return { message: 'OTP sent to email', previewUrl };
   }
 
+  /**
+   * Verifies an OTP without resetting password.
+   */
   async verifyOtp(verifyOtpDto: VerifyOtpDto) {
     const { email, otp } = verifyOtpDto;
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const normalizedEmail = String(email ?? '').trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (!user) {
       throw new NotFoundException('User not found');
@@ -177,9 +242,13 @@ export class AuthService {
     return { message: 'OTP verified successfully' };
   }
 
+  /**
+   * Resets password using a verified OTP.
+   */
   async resetPassword(resetPasswordDto: ResetPasswordDto) {
     const { email, otp, newPassword } = resetPasswordDto;
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const normalizedEmail = String(email ?? '').trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (!user) {
       throw new NotFoundException('User not found');

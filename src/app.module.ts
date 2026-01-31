@@ -12,6 +12,10 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ApiSignGuard } from './common/guards/api-sign.guard';
 import { PetsModule } from './pets/pets.module';
 import { PetMediaModule } from './pet-media/pet-media.module';
+import { DogEventsModule } from './dog-events/dog-events.module';
+import { HomeModule } from './home/home.module';
+import { DictsModule } from './dicts/dicts.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -25,6 +29,10 @@ import { PetMediaModule } from './pet-media/pet-media.module';
     PrismaModule,
     PetsModule,
     PetMediaModule,
+    DogEventsModule,
+    HomeModule,
+    DictsModule,
+    AiModule,
   ],
   controllers: [AppController],
   providers: [

@@ -3,11 +3,12 @@
 
 generator client {
   provider = "prisma-client-js"
-  previewFeatures = ["driverAdapters"]
+  // previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
   provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -70,6 +71,10 @@ model DogEvent {
   contextType String?  // Enum DogContextType
   confidence  Float?
   audioUrl    String?
+  outputAudioUrl String?
+  mode        String?
+  meaningText String?
+  inputTranscript String?
 
   createdAt DateTime @default(now())
 }
@@ -79,4 +84,16 @@ model BlacklistedToken {
   token     String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
+}
+
+model DogTask {
+  id        String   @id @default(uuid())
+  userId    Int
+  petId     Int
+  type      String   // "INTERPRET" | "SYNTHESIZE"
+  status    String   // "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED"
+  result    String?  // JSON string
+  error     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
