@@ -52,6 +52,7 @@ export class DogAiController {
       properties: {
         eventId: { type: 'integer', description: 'Created event ID' },
         inputAudioUrl: { type: 'string', description: 'URL of the uploaded audio' },
+        outputAudioUrl: { oneOf: [{ type: 'string' }, { type: 'null' }], description: 'URL of generated meaning audio (optional)' },
         meaningText: { type: 'string', description: 'Translated meaning text' },
         labels: {
           type: 'object',
@@ -62,7 +63,7 @@ export class DogAiController {
           },
         },
         confidence: { oneOf: [{ type: 'number' }, { type: 'null' }], description: 'Confidence score (0-1)' },
-        modelVersion: { type: 'string', description: 'Model version used' },
+        modelVersion: { type: 'object', description: 'Model versions used' },
       },
     },
   })
@@ -183,7 +184,16 @@ export class DogAiController {
       },
     },
   })
-  @UseInterceptors(FileInterceptor('audio'))
+  @UseInterceptors(
+    FileInterceptor('audio', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const mt = (file?.mimetype ?? '').toLowerCase();
+        const ok = mt.startsWith('audio/') || mt === 'application/octet-stream' || mt === 'binary/octet-stream' || mt === '';
+        cb(ok ? null : new BadRequestException('audio must be an audio file'), ok);
+      },
+    }),
+  )
   synthesizeTask(
     @GetCurrentUserId() userId: number,
     @UploadedFile() audio: Express.Multer.File,
@@ -219,6 +229,7 @@ export class DogAiController {
         },
         error: { type: 'string', nullable: true, description: 'Error message if failed' },
         createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' },
       },
     },
   })

@@ -2,17 +2,17 @@ import {
   BadGatewayException,
   BadRequestException,
   ForbiddenException,
-  GatewayTimeoutException,
-  HttpException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { createWriteStream, mkdirSync } from 'fs';
 import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
+import { ASR_PROVIDER, LLM_PROVIDER, TTS_PROVIDER } from './providers/provider.tokens';
+import { AsrProvider, LlmProvider, TtsProvider } from './providers/provider.types';
 
 type DogInterpretResult = {
   meaningText: string;
@@ -32,32 +32,17 @@ type DogSynthesizePlan = {
 @Injectable()
 export class DogAiService {
   private readonly logger = new Logger(DogAiService.name);
-  private readonly apiKey: string | undefined;
-  private readonly apiBaseUrl: string;
-  private readonly textModel: string;
-  private readonly audioModel: string;
-  private readonly transcribeModel: string;
-  private readonly ttsModel: string;
-  private readonly dogAudioOutputMode: 'openai_tts' | 'synthetic';
+  private readonly dogAudioOutputMode: 'synthetic' | 'volc_tts';
   private readonly aiDebugLog: boolean;
 
-  constructor(private readonly prisma: PrismaService) {
-    const rawApiBase = process.env.AI_API_BASE ?? process.env.GEMINI3_API_BASE ?? 'https://api.openai.com/v1';
-    const normalizedApiBase = String(rawApiBase)
-      .trim()
-      .replace(/`/g, '')
-      .replace(/^"+|"+$/g, '')
-      .replace(/^'+|'+$/g, '')
-      .replace(/\/$/, '');
-    this.apiBaseUrl = normalizedApiBase;
-    this.apiKey = process.env.AI_API_KEY ?? process.env.GEMINI3_API_KEY;
-    this.textModel = process.env.AI_TEXT_MODEL ?? process.env.GEMINI3_MODEL ?? 'gpt-4o-mini';
-    this.audioModel = process.env.AI_AUDIO_MODEL ?? 'gpt-audio';
-    this.transcribeModel = process.env.AI_TRANSCRIBE_MODEL ?? 'gpt-4o-mini-transcribe';
-    this.ttsModel = process.env.AI_TTS_MODEL ?? 'gpt-4o-mini-tts';
-    
-    // Default to synthetic if TTS fails or as configured, but we try to use the API if possible
-    this.dogAudioOutputMode = (process.env.DOG_AUDIO_OUTPUT_MODE ?? 'synthetic') === 'synthetic' ? 'synthetic' : 'openai_tts';
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(ASR_PROVIDER) private readonly asrProvider: AsrProvider,
+    @Inject(LLM_PROVIDER) private readonly llmProvider: LlmProvider,
+    @Inject(TTS_PROVIDER) private readonly ttsProvider: TtsProvider,
+  ) {
+    const mode = (process.env.DOG_AUDIO_OUTPUT_MODE ?? 'synthetic').trim();
+    this.dogAudioOutputMode = mode === 'volc_tts' ? 'volc_tts' : 'synthetic';
     const defaultDebug = process.env.NODE_ENV === 'production' ? 'false' : 'true';
     this.aiDebugLog = (process.env.AI_DEBUG_LOG ?? defaultDebug) === 'true';
   }
@@ -95,40 +80,56 @@ export class DogAiService {
     this.debugLog({ msg: 'dog.interpret.saved_input', traceId, inputAudioUrl, audioFormat: format });
 
     const t0 = Date.now();
-    let result: DogInterpretResult;
-    let resultSource: 'model' | 'fallback' = 'model';
-    this.debugLog({
-      msg: 'dog.interpret.model_request',
-      traceId,
-      model: this.audioModel,
-      apiBase: this.apiBaseUrl,
-      audioFormat: format,
-      audioBytes: params.audio?.size,
-      hasContext: Boolean(params.context),
-    });
+    let transcript = '';
+    const lang = params.locale?.startsWith('zh') ? 'zh-CN' : 'en';
+    let result: DogInterpretResult = {
+      meaningText:
+        lang === 'zh-CN'
+          ? '我在叫，但我也不太确定我想表达什么。可能是想引起你的注意。'
+          : "I'm making noise, but I'm not sure what I mean. Maybe I'm trying to get your attention.",
+      dogEventType: 'OTHER',
+      confidence: 0.2,
+    };
+    let resultSource: 'asr_llm' | 'fallback' = 'fallback';
     try {
-      result = await this.aiInterpret({
+      this.debugLog({ msg: 'dog.interpret.asr.request', traceId, audioFormat: format, audioBytes: params.audio?.size });
+      transcript = await this.aiTranscribeHumanAudio({ traceId, scene: 'dog.interpret', locale: params.locale, file: params.audio });
+      this.debugLog({
+        msg: 'dog.interpret.asr.result',
+        traceId,
+        transcriptLen: transcript.length,
+        transcriptPreview: transcript.slice(0, 96),
+      });
+      // if (!transcript.trim()) {
+      //   transcript = '[Audio contains non-speech sounds or silence. Please interpret based on context/audio features if possible.]';
+      // }
+      // if (!transcript.trim()) throw new BadGatewayException('ASR transcript is empty');
+      if (!transcript.trim()) {
+        this.debugLog({ msg: 'dog.interpret.asr_empty', traceId });
+        // Use a fallback prompt for non-speech audio (barking/howling without words)
+        transcript = '[Audio contains non-speech sounds or silence. Please interpret based on context/audio features if possible.]';
+      }
+
+      this.debugLog({
+        msg: 'dog.interpret.llm.request',
+        traceId,
+        transcriptLen: transcript.length,
+        hasContext: Boolean(params.context),
+      });
+      result = await this.aiInterpretFromTranscript({
+        traceId,
         locale: params.locale,
         petName: pet.name,
         breedId: pet.breedId,
         context: params.context,
-        audioBase64: params.audio.buffer.toString('base64'),
-        audioFormat: format,
+        transcript,
       });
+      resultSource = 'asr_llm';
     } catch (e: any) {
       resultSource = 'fallback';
-      this.errorLog(e, { msg: 'dog.interpret.model_failed', traceId, model: this.audioModel, apiBase: this.apiBaseUrl });
-      const lang = params.locale?.startsWith('zh') ? 'zh-CN' : 'en';
-      result = {
-        meaningText:
-          lang === 'zh-CN'
-            ? '我在叫，但我也不太确定我想表达什么。可能是想引起你的注意。'
-            : "I'm making noise, but I'm not sure what I mean. Maybe I'm trying to get your attention.",
-        dogEventType: 'OTHER',
-        confidence: 0.2,
-      };
+      this.errorLog(e, { msg: 'dog.interpret.failed', traceId, resultSource });
     } finally {
-      this.debugLog({ msg: 'dog.interpret.model_done', traceId, ms: Date.now() - t0, model: this.audioModel });
+      this.debugLog({ msg: 'dog.interpret.done', traceId, ms: Date.now() - t0 });
     }
 
     const eventType = this.normalizeDogEventType(result.dogEventType) ?? 'OTHER';
@@ -139,12 +140,26 @@ export class DogAiService {
       msg: 'dog.interpret.model_result',
       traceId,
       source: resultSource,
-      model: this.audioModel,
       eventType,
       confidence: confidence ?? null,
       meaningTextLen: typeof result.meaningText === 'string' ? result.meaningText.length : 0,
       meaningTextPreview,
     });
+
+    let outputAudioUrl: string | null = null;
+    try {
+      const out = await this.ttsProvider.synthesize({
+        text: result.meaningText,
+        locale: params.locale,
+        uid: String(params.userId),
+        traceId,
+      });
+      outputAudioUrl = this.saveGeneratedFile('uploads/human-tts-output', out.bytes, out.ext);
+      this.debugLog({ msg: 'dog.interpret.tts.saved', traceId, outputAudioUrl, ext: out.ext });
+    } catch (e: any) {
+      this.errorLog(e, { msg: 'dog.interpret.tts_failed', traceId });
+      outputAudioUrl = null;
+    }
 
     const ev = await this.prisma.dogEvent.create({
       data: {
@@ -155,7 +170,9 @@ export class DogAiService {
         contextType: result.contextType ?? null,
         confidence,
         audioUrl: inputAudioUrl,
+        outputAudioUrl,
         meaningText: result.meaningText,
+        inputTranscript: transcript || null,
       },
     });
     this.debugLog({ msg: 'dog.interpret.persisted', traceId, eventId: ev.id, eventType, confidence });
@@ -163,14 +180,27 @@ export class DogAiService {
     return {
       eventId: ev.id,
       inputAudioUrl,
+      outputAudioUrl,
       meaningText: result.meaningText,
+      transcript: transcript || null,
       labels: {
         dogEventType: eventType,
         stateType: result.stateType ?? null,
         contextType: result.contextType ?? null,
       },
       confidence: confidence ?? null,
-      modelVersion: this.audioModel,
+      modelVersion: {
+        source: resultSource,
+        asr: resultSource === 'asr_llm' ? 'volcengine' : null,
+        llm: resultSource === 'asr_llm' ? 'ark' : null,
+        tts: outputAudioUrl ? 'volcengine' : null,
+      },
+      debug: this.aiDebugLog
+        ? {
+            traceId,
+            source: resultSource,
+          }
+        : null,
     };
   }
 
@@ -209,20 +239,20 @@ export class DogAiService {
     const inputAudioUrl = this.saveUploadedFile('uploads/human-audio-input', params.audio, inputExt);
     this.debugLog({ msg: 'dog.synthesize.saved_input', traceId, inputAudioUrl });
 
-    // 2. Use Multimodal AI to transcribe AND plan in one go (skips unreliable STT endpoint)
+    // 2. ASR -> LLM plan
     const t1 = Date.now();
     let plan: DogSynthesizePlan;
-    let planModelUsed = this.textModel;
+    let planSource: 'ark' | 'fallback' = 'ark';
     try {
       this.debugLog({
         msg: 'dog.synthesize.transcribe.request',
         traceId,
-        model: this.transcribeModel,
-        apiBase: this.apiBaseUrl,
         audioFormat: format,
         audioBytes: params.audio?.size,
       });
       const transcript = await this.aiTranscribeHumanAudio({
+        traceId,
+        scene: 'dog.synthesize',
         locale: params.locale,
         file: params.audio,
       });
@@ -232,41 +262,44 @@ export class DogAiService {
         transcriptLen: transcript.length,
         transcriptPreview: transcript.slice(0, 96),
       });
+
+      // if (!transcript.trim()) {
+      //   throw new BadRequestException(
+      //     params.locale?.startsWith('zh')
+      //       ? '未识别到有效语音，请大声一点。'
+      //       : 'No speech detected. Please speak louder.'
+      //   );
+      // }
+      if (!transcript.trim()) throw new BadGatewayException('ASR transcript is empty');
+
       plan = await this.aiPlanBarkFromTranscript({
+        traceId,
         locale: params.locale,
         style: params.style,
         transcript,
       });
-      planModelUsed = this.textModel;
+      planSource = 'ark';
     } catch (e: any) {
-      this.errorLog(e, { msg: 'dog.synthesize.plan_failed', traceId, apiBase: this.apiBaseUrl });
-      this.debugLog({
-        msg: 'dog.synthesize.multimodal_plan.request',
-        traceId,
-        model: this.audioModel,
-        apiBase: this.apiBaseUrl,
-        audioFormat: format,
-        audioBytes: params.audio?.size,
-      });
-      plan = await this.aiPlanBarkMultimodal({
-        locale: params.locale,
-        style: params.style,
-        audioBase64: params.audio.buffer.toString('base64'),
-        audioFormat: format,
-      });
-      planModelUsed = this.audioModel;
+      this.errorLog(e, { msg: 'dog.synthesize.plan_failed', traceId });
+      plan = {
+        barkType: 'OTHER',
+        intensity: 0.6,
+        dogText: params.locale?.startsWith('zh') ? '汪汪！' : 'Woof!',
+        transcript: '',
+      };
+      planSource = 'fallback';
     } finally {
       this.debugLog({
         msg: 'dog.synthesize.plan_done',
         traceId,
         ms: Date.now() - t1,
-        planModel: planModelUsed,
+        planSource,
       });
     }
     this.debugLog({
       msg: 'dog.synthesize.plan_result',
       traceId,
-      planModel: planModelUsed,
+      planSource,
       barkType: plan.barkType,
       intensity: plan.intensity,
       transcriptLen: typeof plan.transcript === 'string' ? plan.transcript.length : 0,
@@ -284,7 +317,6 @@ export class DogAiService {
         msg: 'dog.synthesize.tts.request',
         traceId,
         outputMode: this.dogAudioOutputMode,
-        ttsModel: this.dogAudioOutputMode === 'synthetic' ? 'synthetic' : this.ttsModel,
         barkType: plan.barkType,
         intensity: plan.intensity,
         dogTextLen: typeof plan.dogText === 'string' ? plan.dogText.length : 0,
@@ -329,8 +361,8 @@ export class DogAiService {
         dogEventType: plan.barkType,
       },
       modelVersion: {
-        plan: plan?.transcript ? this.textModel : this.audioModel,
-        tts: this.dogAudioOutputMode === 'synthetic' ? 'synthetic' : this.ttsModel,
+        plan: planSource,
+        tts: this.dogAudioOutputMode === 'volc_tts' ? 'volcengine' : 'synthetic',
       },
     };
   }
@@ -370,7 +402,7 @@ export class DogAiService {
         userId: params.userId,
         petId: params.petId,
         type: 'SYNTHESIZE',
-        status: 'PROCESSING',
+        status: 'PENDING',
       },
     });
     this.debugLog({
@@ -421,6 +453,7 @@ export class DogAiService {
       result,
       error: task.error,
       createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
     };
   }
 
@@ -443,6 +476,10 @@ export class DogAiService {
     });
 
     try {
+      await this.prisma.dogTask.update({
+        where: { id: taskId },
+        data: { status: 'PROCESSING', error: null },
+      });
       // 1. Plan
       const t1 = Date.now();
       let plan: DogSynthesizePlan;
@@ -450,12 +487,12 @@ export class DogAiService {
         this.debugLog({
           msg: 'task.transcribe.request',
           traceId,
-          model: this.transcribeModel,
-          apiBase: this.apiBaseUrl,
         });
         const fileBytes = Buffer.from(params.audioBase64, 'base64');
         const ext = params.audioFormat === 'mp3' ? 'mp3' : 'wav';
         const transcript = await this.aiTranscribeHumanAudio({
+          traceId,
+          scene: 'task.transcribe',
           locale: params.locale,
           file: { buffer: fileBytes, mimetype: '', originalname: `input.${ext}` } as any,
         });
@@ -466,25 +503,19 @@ export class DogAiService {
           transcriptPreview: transcript.slice(0, 96),
         });
         plan = await this.aiPlanBarkFromTranscript({
+          traceId,
           locale: params.locale,
           style: params.style,
           transcript,
         });
       } catch (e: any) {
-        this.errorLog(e, { msg: 'task.plan.transcribe_failed_fallback_multimodal', taskId });
-        this.debugLog({
-          msg: 'task.multimodal_plan.request',
-          traceId,
-          model: this.audioModel,
-          apiBase: this.apiBaseUrl,
-          audioFormat: params.audioFormat,
-        });
-        plan = await this.aiPlanBarkMultimodal({
-          locale: params.locale,
-          style: params.style,
-          audioBase64: params.audioBase64,
-          audioFormat: params.audioFormat,
-        });
+        this.errorLog(e, { msg: 'task.plan_failed_fallback', taskId });
+        plan = {
+          barkType: 'OTHER',
+          intensity: 0.6,
+          dogText: params.locale?.startsWith('zh') ? '汪汪！' : 'Woof!',
+          transcript: '',
+        };
       }
       this.debugLog({ msg: 'task.plan_done', traceId, ms: Date.now() - t1 });
       this.debugLog({
@@ -511,7 +542,6 @@ export class DogAiService {
         traceId,
         ms: Date.now() - t2,
         outputMode: this.dogAudioOutputMode,
-        ttsModel: this.dogAudioOutputMode === 'synthetic' ? 'synthetic' : this.ttsModel,
         outputBytes: out.bytes?.length ?? 0,
         ext: out.ext,
       });
@@ -543,8 +573,8 @@ export class DogAiService {
           dogEventType: plan.barkType,
         },
         modelVersion: {
-          plan: plan?.transcript ? this.textModel : this.audioModel,
-          tts: this.dogAudioOutputMode === 'synthetic' ? 'synthetic' : this.ttsModel,
+          plan: 'ark',
+          tts: this.dogAudioOutputMode === 'volc_tts' ? 'volcengine' : 'synthetic',
         },
       };
 
@@ -603,15 +633,6 @@ export class DogAiService {
     return `/${dirRelative.replace(/^\//, '')}/${filename}`;
   }
 
-  private safeExt(file: Express.Multer.File) {
-    const name = (file.originalname ?? '').toLowerCase();
-    if (name.endsWith('.wav')) return 'wav';
-    if (name.endsWith('.mp3')) return 'mp3';
-    if (name.endsWith('.m4a')) return 'm4a';
-    if (name.endsWith('.aac')) return 'aac';
-    return 'bin';
-  }
-
   private requireSupportedAudio(file: Express.Multer.File): { format: 'wav' | 'mp3'; ext: string } {
     const mime = (file.mimetype ?? '').toLowerCase();
     const name = (file.originalname ?? '').toLowerCase();
@@ -620,208 +641,102 @@ export class DogAiService {
     throw new BadRequestException('Unsupported audio format. Please upload wav or mp3.');
   }
 
-  private async aiInterpret(params: {
+  private async aiInterpretFromTranscript(params: {
+    traceId?: string;
     locale?: string;
     petName?: string;
     breedId?: string;
     context?: string;
-    audioBase64: string;
-    audioFormat: 'wav' | 'mp3';
+    transcript: string;
   }): Promise<DogInterpretResult> {
-    if (!this.apiKey) throw new ServiceUnavailableException('AI is not configured');
-
     const lang = params.locale?.startsWith('zh') ? 'zh-CN' : 'en';
-    const prompt =
+    const system =
       lang === 'zh-CN'
         ? [
-            '你是一位专业的犬类行为专家和“狗语翻译官”。',
-            '任务：仔细分析这段狗叫录音的情绪、语调、频率和持续时间，推测这只狗想要表达的具体含义。',
-            '输出：必须是纯 JSON，不能包含 markdown 或多余解释。',
-            'JSON 字段说明：',
-            '- meaningText: (字符串) 用第一人称（如“我好开心”、“别过来”）翻译出的狗的心声，要生动、符合场景。',
-            '- dogEventType: (枚举) 吠叫类型，选其一：BARK(普通叫), HOWL(嚎叫), WHINE(呜咽), GROWL(低吼), OTHER(其他)。',
-            '- confidence: (数字) 0到1之间的置信度。',
-            params.petName || params.breedId
-              ? `宠物信息：name=${params.petName ?? ''}, breedId=${params.breedId ?? ''}`
-              : '',
+            '你是 RealDog 的“狗语翻译官”。',
+            '输入包含：ASR 转写文本（可能是狗叫的拟声/乱码）、宠物信息、用户场景补充。',
+            '你需要基于这些信息生成拟人化解释。',
+            '只输出 JSON，不要 markdown。',
+            'JSON schema: {"meaningText":string,"dogEventType":"BARK"|"HOWL"|"WHINE"|"GROWL"|"OTHER","stateType":string|null,"contextType":string|null,"confidence":number}',
+            'confidence 取 0~1。',
+          ].join('\n')
+        : [
+            'You are RealDog "Dog Translator".',
+            'Input includes an ASR transcript (may be noisy), pet context, and optional user context.',
+            'You must generate a humanized interpretation.',
+            'Output JSON only.',
+            'JSON schema: {"meaningText":string,"dogEventType":"BARK"|"HOWL"|"WHINE"|"GROWL"|"OTHER","stateType":string|null,"contextType":string|null,"confidence":number}',
+            'confidence is 0~1.',
+          ].join('\n');
+
+    const user =
+      lang === 'zh-CN'
+        ? [
+            params.petName || params.breedId ? `宠物信息：name=${params.petName ?? ''}, breedId=${params.breedId ?? ''}` : '',
             params.context ? `用户场景补充：${params.context}` : '',
+            `ASR 文本：${params.transcript || ''}`,
           ]
             .filter((x) => x.length > 0)
             .join('\n')
         : [
-            'You are a professional canine behaviorist and "Dog Translator".',
-            'Task: Analyze the emotion, tone, frequency, and duration of this dog vocalization to deduce the dog\'s specific intent.',
-            'Output: MUST be pure JSON with no markdown or extra explanation.',
-            'JSON Fields:',
-            '- meaningText: (string) The translation of the dog\'s inner thoughts in first person (e.g., "I\'m so happy", "Stay away"), lively and context-aware.',
-            '- dogEventType: (enum) One of: BARK, HOWL, WHINE, GROWL, OTHER.',
-            '- confidence: (number) 0 to 1.',
             params.petName || params.breedId ? `Pet context: name=${params.petName ?? ''}, breedId=${params.breedId ?? ''}` : '',
             params.context ? `User context: ${params.context}` : '',
+            `ASR transcript: ${params.transcript || ''}`,
           ]
             .filter((x) => x.length > 0)
             .join('\n');
 
-    let content: string | undefined;
-    try {
-      const body = {
-        model: this.audioModel,
-        temperature: 0.2,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              {
-                type: 'input_audio',
-                input_audio: {
-                  data: params.audioBase64,
-                  format: params.audioFormat,
-                },
-              },
-            ],
-          },
-        ],
-      };
-      const res = await this.aiFetchJson(`${this.apiBaseUrl}/chat/completions`, body);
-      content = res?.choices?.[0]?.message?.content;
-    } catch (e: any) {
-      this.errorLog(e, { msg: 'ai.interpret.chat_failed_try_responses' });
-      const body = {
-        model: this.audioModel,
-        input: [
-          {
-            role: 'user',
-            content: [
-              { type: 'input_text', text: prompt },
-              {
-                type: 'input_audio',
-                input_audio: {
-                  data: params.audioBase64,
-                  format: params.audioFormat,
-                },
-              },
-            ],
-          },
-        ],
-      };
-      const res = await this.aiFetchJson(`${this.apiBaseUrl}/responses`, body);
-      content = this.extractTextFromResponses(res);
-    }
+    const t0 = Date.now();
+    this.debugLog({
+      msg: 'llm.interpret.request',
+      traceId: params.traceId ?? null,
+      locale: params.locale ?? null,
+      transcriptLen: params.transcript.length,
+      hasContext: Boolean(params.context),
+    });
+    const res = await this.llmProvider.chat({
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    });
+    this.debugLog({
+      msg: 'llm.interpret.response',
+      traceId: params.traceId ?? null,
+      ms: Date.now() - t0,
+      vendor: res.vendor,
+      model: res.model,
+      contentLen: typeof res.content === 'string' ? res.content.length : 0,
+      contentPreview: typeof res.content === 'string' ? res.content.slice(0, 240) : '',
+    });
+
+    const content = res.content;
     if (!content) throw new BadGatewayException('AI response is empty');
     const parsed = this.tryParseJson(content);
     if (!parsed) throw new BadGatewayException('AI response is not JSON');
 
     const meaningText = typeof parsed.meaningText === 'string' ? parsed.meaningText : '';
     if (!meaningText.trim()) throw new BadGatewayException('AI meaningText is empty');
-    return {
+
+    const out = {
       meaningText: meaningText.trim(),
       dogEventType: this.normalizeDogEventType(parsed.dogEventType) ?? 'OTHER',
       confidence: typeof parsed.confidence === 'number' ? parsed.confidence : undefined,
+      stateType: typeof parsed.stateType === 'string' ? parsed.stateType : undefined,
+      contextType: typeof parsed.contextType === 'string' ? parsed.contextType : undefined,
     };
-  }
-
-  // aiTranscribe skipped (not used in main flow)
-
-  private async aiPlanBarkMultimodal(params: {
-    locale?: string;
-    style?: string;
-    audioBase64: string;
-    audioFormat: 'wav' | 'mp3';
-  }): Promise<DogSynthesizePlan> {
-    if (!this.apiKey) throw new ServiceUnavailableException('AI is not configured');
-
-    const lang = params.locale?.startsWith('zh') ? 'zh-CN' : 'en';
-    const system =
-      lang === 'zh-CN'
-        ? [
-            '你是 RealDog 的“人话→狗叫规划器”。',
-            '你需要完成两步：',
-            '1. 识别用户音频内容（Transcript）。',
-            '2. 根据内容和风格，转换成狗能理解的“发声计划”。',
-            '只输出 JSON，不要 markdown。',
-            'JSON schema: {"transcript": string, "barkType":"BARK"|"HOWL"|"WHINE"|"GROWL"|"OTHER","intensity":number,"dogText":string}',
-            'intensity 取 0~1，小数。',
-            'dogText 用于生成“狗叫音频”的提示词，应该像狗叫（短、拟声、带情绪）。',
-          ].join('\n')
-        : [
-            'You are RealDog human-to-dog vocalization planner.',
-            'Two steps:',
-            '1. Transcribe user audio.',
-            '2. Convert intent to dog vocalization plan.',
-            'Output JSON only.',
-            'JSON schema: {"transcript": string, "barkType":"BARK"|"HOWL"|"WHINE"|"GROWL"|"OTHER","intensity":number,"dogText":string}',
-            'intensity is 0~1 float. dogText should be short onomatopoeia with emotion.',
-          ].join('\n');
-
-    const userText =
-      lang === 'zh-CN'
-        ? `风格：${params.style ?? 'default'}`
-        : `Style: ${params.style ?? 'default'}`;
-
-    let content: string | undefined;
-    try {
-      const body = {
-        model: this.audioModel,
-        temperature: 0.3,
-        messages: [
-          { role: 'system', content: system },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: userText },
-              {
-                type: 'input_audio',
-                input_audio: {
-                  data: params.audioBase64,
-                  format: params.audioFormat,
-                },
-              },
-            ],
-          },
-        ],
-      };
-      const res = await this.aiFetchJson(`${this.apiBaseUrl}/chat/completions`, body);
-      content = res?.choices?.[0]?.message?.content;
-    } catch (e: any) {
-      this.errorLog(e, { msg: 'ai.plan.chat_failed_try_responses' });
-      const body = {
-        model: this.audioModel,
-        input: [
-          { role: 'system', content: [{ type: 'input_text', text: system }] },
-          {
-            role: 'user',
-            content: [
-              { type: 'input_text', text: userText },
-              {
-                type: 'input_audio',
-                input_audio: {
-                  data: params.audioBase64,
-                  format: params.audioFormat,
-                },
-              },
-            ],
-          },
-        ],
-      };
-      const res = await this.aiFetchJson(`${this.apiBaseUrl}/responses`, body);
-      content = this.extractTextFromResponses(res);
-    }
-    if (!content) throw new BadGatewayException('AI response is empty');
-    const parsed = this.tryParseJson(content);
-    if (!parsed) throw new BadGatewayException('AI response is not JSON');
-
-    const barkType = this.normalizeDogEventType(parsed.barkType) ?? 'OTHER';
-    const intensity = typeof parsed.intensity === 'number' ? parsed.intensity : 0.6;
-    const dogText = typeof parsed.dogText === 'string' ? parsed.dogText : 'Woof!';
-    const transcript = typeof parsed.transcript === 'string' ? parsed.transcript : '';
-
-    return {
-      barkType,
-      intensity: Math.max(0, Math.min(1, intensity)),
-      dogText: dogText.trim() || 'Woof!',
-      transcript,
-    };
+    this.debugLog({
+      msg: 'llm.interpret.parsed',
+      traceId: params.traceId ?? null,
+      dogEventType: out.dogEventType,
+      confidence: typeof out.confidence === 'number' ? out.confidence : null,
+      meaningTextLen: out.meaningText.length,
+      meaningTextPreview: out.meaningText.slice(0, 120),
+      stateType: out.stateType ?? null,
+      contextType: out.contextType ?? null,
+    });
+    return out;
   }
 
   private async aiTextToSpeechDogLike(params: {
@@ -833,48 +748,14 @@ export class DogAiService {
     if (this.dogAudioOutputMode === 'synthetic') {
       return { bytes: this.synthDogWav(params.barkType, params.intensity), ext: 'wav' };
     }
-    if (!this.apiKey) {
-      return { bytes: this.synthDogWav(params.barkType, params.intensity), ext: 'wav' };
-    }
-    const lang = params.locale?.startsWith('zh') ? 'zh-CN' : 'en';
-    const input =
-      lang === 'zh-CN'
-        ? `用“狗叫/拟声”的方式表达：${params.dogText}\n强度：${params.intensity}\n类型：${params.barkType}`
-        : `Express as dog-like barking/onomatopoeia: ${params.dogText}\nIntensity: ${params.intensity}\nType: ${params.barkType}`;
-
-    const timeoutMs = 15000;
-    const abort = new AbortController();
-    const t = setTimeout(() => abort.abort(), timeoutMs);
-    let res: any;
-    try {
-      res = await fetch(`${this.apiBaseUrl}/audio/speech`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: this.ttsModel,
-          voice: 'alloy',
-          input,
-          response_format: 'mp3',
-        }),
-        signal: abort.signal,
+    if (this.dogAudioOutputMode === 'volc_tts') {
+      const out = await this.ttsProvider.synthesize({
+        text: params.dogText,
+        locale: params.locale,
       });
-    } catch (e: any) {
-      if (e?.name === 'AbortError') throw new GatewayTimeoutException('AI request timeout');
-      throw new BadGatewayException('AI request failed');
-    } finally {
-      clearTimeout(t);
+      return { bytes: out.bytes, ext: out.ext };
     }
-
-    if (!res.ok) {
-      // Fallback to synthetic if API fails
-      this.errorLog(null, { msg: 'ai.tts_api_failed_fallback_synthetic', status: res.status });
-      return { bytes: this.synthDogWav(params.barkType, params.intensity), ext: 'wav' };
-    }
-    const buf = new Uint8Array(await res.arrayBuffer());
-    return { bytes: buf, ext: 'mp3' };
+    return { bytes: this.synthDogWav(params.barkType, params.intensity), ext: 'wav' };
   }
 
   private synthDogWav(barkType: DogSynthesizePlan['barkType'], intensity: number): Uint8Array {
@@ -945,112 +826,41 @@ export class DogAiService {
     return new Uint8Array(buf);
   }
 
-  private async aiFetchJson(url: string, body: any): Promise<any> {
-    if (!this.apiKey) throw new ServiceUnavailableException('AI is not configured');
-
-    const timeoutMs = 25000; // Increased timeout
-    const abort = new AbortController();
-    const t = setTimeout(() => abort.abort(), timeoutMs);
-    let res: any;
-    try {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-        signal: abort.signal,
-      });
-    } catch (e: any) {
-      if (e?.name === 'AbortError') throw new GatewayTimeoutException('AI request timeout');
-      throw new BadGatewayException('AI request failed: ' + e.message);
-    } finally {
-      clearTimeout(t);
-    }
-
-    if (!res.ok) {
-      const snippet = await this.tryReadBodySnippet(res);
-      this.debugLog({ msg: 'ai.http_error', url, status: res.status, body: snippet });
-      // CRITICAL CHANGE: Throw specific HttpException so we see the real upstream error
-      throw new HttpException(
-        `AI Gateway Error ${res.status}: ${snippet || 'Unknown'}`, 
-        res.status >= 500
-          ? 502
-          : res.status === 401 || res.status === 403 || res.status === 404
-            ? 502
-            : res.status === 429
-              ? 503
-              : 400
-      );
-    }
-    return res.json();
-  }
-
-  private extractTextFromResponses(res: any): string | undefined {
-    if (!res) return undefined;
-    if (typeof res.output_text === 'string' && res.output_text.trim()) return res.output_text.trim();
-    const output = Array.isArray(res.output) ? res.output : [];
-    for (const item of output) {
-      const content = Array.isArray(item?.content) ? item.content : [];
-      for (const c of content) {
-        if (typeof c?.text === 'string' && c.text.trim()) return c.text.trim();
-      }
-    }
-    return undefined;
-  }
-
   private async aiTranscribeHumanAudio(params: {
+    traceId?: string;
+    scene?: string;
     locale?: string;
     file: Express.Multer.File;
   }): Promise<string> {
-    if (!this.apiKey) throw new ServiceUnavailableException('AI is not configured');
-    const ext = this.safeExt(params.file);
-    const blob = new Blob([Uint8Array.from(params.file.buffer)], {
-      type: params.file.mimetype && params.file.mimetype.trim() ? params.file.mimetype : 'application/octet-stream',
+    const { format } = this.requireSupportedAudio(params.file);
+    const t0 = Date.now();
+    const res = await this.asrProvider.transcribe({
+      audioBytes: params.file.buffer,
+      format,
+      locale: params.locale,
     });
-    const form = new FormData();
-    form.append('model', this.transcribeModel);
-    form.append('file', blob, `input.${ext}`);
-    const lang = params.locale?.startsWith('zh') ? 'zh' : 'en';
-    form.append('language', lang);
-
-    const timeoutMs = 25000;
-    const abort = new AbortController();
-    const t = setTimeout(() => abort.abort(), timeoutMs);
-    let res: any;
-    try {
-      res = await fetch(`${this.apiBaseUrl}/audio/transcriptions`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: form as any,
-        signal: abort.signal,
-      });
-    } catch (e: any) {
-      if (e?.name === 'AbortError') throw new GatewayTimeoutException('AI request timeout');
-      throw new BadGatewayException('AI request failed');
-    } finally {
-      clearTimeout(t);
-    }
-
-    if (!res.ok) {
-      const snippet = await this.tryReadBodySnippet(res);
-      throw new HttpException(`AI Gateway Error ${res.status}: ${snippet || 'Unknown'}`, res.status >= 500 ? 502 : 400);
-    }
-    const data = (await res.json()) as any;
-    const text = typeof data?.text === 'string' ? data.text : '';
-    if (!text.trim()) throw new BadGatewayException('AI transcription is empty');
+    const text = typeof res?.text === 'string' ? res.text : '';
+    this.debugLog({
+      msg: 'asr.transcribe.response',
+      traceId: params.traceId ?? null,
+      scene: params.scene ?? null,
+      ms: Date.now() - t0,
+      vendor: (res as any)?.vendor ?? null,
+      model: (res as any)?.model ?? null,
+      textLen: text.length,
+      textPreview: text.slice(0, 120),
+    });
+    // if (!text.trim()) throw new BadGatewayException('ASR transcript is empty');
+    // if (!text.trim()) throw new BadGatewayException('ASR transcript is empty');
     return text.trim();
   }
 
   private async aiPlanBarkFromTranscript(params: {
+    traceId?: string;
     locale?: string;
     style?: string;
     transcript: string;
   }): Promise<DogSynthesizePlan> {
-    if (!this.apiKey) throw new ServiceUnavailableException('AI is not configured');
     const lang = params.locale?.startsWith('zh') ? 'zh-CN' : 'en';
     const system =
       lang === 'zh-CN'
@@ -1075,16 +885,31 @@ export class DogAiService {
         ? `风格：${params.style ?? 'default'}\ntranscript：${params.transcript}`
         : `Style: ${params.style ?? 'default'}\ntranscript: ${params.transcript}`;
 
-    const body = {
-      model: this.textModel,
+    const t0 = Date.now();
+    this.debugLog({
+      msg: 'llm.plan.request',
+      traceId: params.traceId ?? null,
+      locale: params.locale ?? null,
+      style: params.style ?? null,
+      transcriptLen: params.transcript.length,
+    });
+    const res = await this.llmProvider.chat({
       temperature: 0.2,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
       ],
-    };
-    const res = await this.aiFetchJson(`${this.apiBaseUrl}/chat/completions`, body);
-    const content: string | undefined = res?.choices?.[0]?.message?.content;
+    });
+    this.debugLog({
+      msg: 'llm.plan.response',
+      traceId: params.traceId ?? null,
+      ms: Date.now() - t0,
+      vendor: res.vendor,
+      model: res.model,
+      contentLen: typeof res.content === 'string' ? res.content.length : 0,
+      contentPreview: typeof res.content === 'string' ? res.content.slice(0, 240) : '',
+    });
+    const content = res.content;
     if (!content) throw new BadGatewayException('AI response is empty');
     const parsed = this.tryParseJson(content);
     if (!parsed) throw new BadGatewayException('AI response is not JSON');
@@ -1094,23 +919,21 @@ export class DogAiService {
     const dogText = typeof parsed.dogText === 'string' ? parsed.dogText : 'Woof!';
     const transcript = typeof parsed.transcript === 'string' ? parsed.transcript : params.transcript;
 
-    return {
+    const out = {
       barkType,
       intensity: Math.max(0, Math.min(1, intensity)),
       dogText: dogText.trim() || 'Woof!',
       transcript,
     };
-  }
-
-  private async tryReadBodySnippet(res: any): Promise<string | null> {
-    try {
-      const text = await res.text();
-      const trimmed = typeof text === 'string' ? text.trim() : '';
-      if (!trimmed) return null;
-      return trimmed.length > 800 ? `${trimmed.slice(0, 800)}...` : trimmed;
-    } catch {
-      return null;
-    }
+    this.debugLog({
+      msg: 'llm.plan.parsed',
+      traceId: params.traceId ?? null,
+      barkType: out.barkType,
+      intensity: out.intensity,
+      dogTextLen: out.dogText.length,
+      dogTextPreview: out.dogText.slice(0, 120),
+    });
+    return out;
   }
 
   private debugLog(obj: any) {
