@@ -19,6 +19,17 @@ import { DogSynthesizeDto } from './dto/dog-synthesize.dto';
 import { APP_HEADERS } from '../common/swagger/app-headers';
 
 
+/**
+ * Dog AI Controller - 狗语AI接口
+ *
+ * 认证方式: Bearer Token (Access Token)
+ * 公共请求头: 参见 APP_HEADERS
+ *
+ * 主要功能:
+ * - interpret: 狗叫翻译 (狗 -> 人)
+ * - synthesize: 人声转狗叫 (人 -> 狗，同步)
+ * - synthesize-task: 人声转狗叫 (人 -> 狗，异步任务)
+ */
 @ApiTags('AI')
 @ApiHeaders(APP_HEADERS)
 @ApiBearerAuth()
@@ -27,6 +38,21 @@ import { APP_HEADERS } from '../common/swagger/app-headers';
 export class DogAiController {
   constructor(private readonly dogAiService: DogAiService) {}
 
+  /**
+   * 解读狗叫 - 将狗叫声翻译为人类语言
+   *
+   * @param userId - 从Token中提取的用户ID
+   * @param audio - 狗叫音频文件 (Form-Data, wav/mp3, 最大10MB)
+   * @param body - 其他参数 (petId, locale, context)
+   * @returns eventId: 事件ID
+   * @returns inputAudioUrl: 输入音频地址
+   * @returns outputAudioUrl: 翻译结果语音地址 (TTS生成，可选)
+   * @returns meaningText: 翻译文本
+   * @returns labels: 事件标签 (dogEventType, stateType, contextType)
+   * @returns confidence: 置信度 (0-1)
+   * @returns modelVersion: 使用的模型版本
+   * @throws BadRequestException - 参数验证失败
+   */
   @Post('interpret')
   @ApiOperation({
     summary: 'Interpret Dog Audio',
@@ -92,6 +118,22 @@ export class DogAiController {
     });
   }
 
+  /**
+   * 人声转狗叫 - 同步版本
+   *
+   * @warning 长音频可能超时，建议使用 synthesize-task 异步接口
+   *
+   * @param userId - 从Token中提取的用户ID
+   * @param audio - 人声音频文件 (Form-Data, wav/mp3, 最大10MB)
+   * @param body - 其他参数 (petId, locale, style)
+   * @returns eventId: 事件ID
+   * @returns inputAudioUrl: 输入音频地址
+   * @returns outputAudioUrl: 生成的狗叫音频地址
+   * @returns labels: 狗叫类型标签 (dogEventType)
+   * @returns modelVersion: 使用的模型版本
+   * @throws BadRequestException - 参数验证失败
+   * @throws BadGatewayException - AI服务异常
+   */
   @Post('synthesize')
   @ApiOperation({
     summary: 'Synthesize Dog Audio (Sync)',
@@ -156,6 +198,18 @@ export class DogAiController {
   /**
    * Async Task Version for Synthesize (Polling)
    */
+  /**
+   * 人声转狗叫 - 异步任务版本
+   *
+   * @description 提交任务后立即返回 taskId，通过 GET /ai/dog/task/:id 轮询状态
+   * @recommendation 生产环境建议使用此接口，避免长音频导致超时
+   *
+   * @param userId - 从Token中提取的用户ID
+   * @param audio - 人声音频文件 (Form-Data, wav/mp3, 最大10MB)
+   * @param body - 其他参数 (petId, locale, style)
+   * @returns taskId: 任务ID (UUID)
+   * @throws BadRequestException - 参数验证失败
+   */
   @Post('synthesize-task')
   @ApiOperation({
     summary: 'Synthesize Dog Audio (Async)',
@@ -209,6 +263,18 @@ export class DogAiController {
     });
   }
 
+  /**
+   * 获取异步任务状态
+   *
+   * @param userId - 从Token中提取的用户ID
+   * @param taskId - 任务ID (Path)
+   * @returns id: 任务ID
+   * @returns status: 状态 (PENDING/PROCESSING/COMPLETED/FAILED)
+   * @returns result: 成功时的结果 (同同步接口返回值结构)
+   * @returns error: 失败时的错误信息
+   * @returns createdAt/updatedAt: 时间戳
+   * @throws NotFoundException - 任务不存在或无权限
+   */
   @Get('task/:id')
   @ApiOperation({
     summary: 'Get Task Status',

@@ -1,14 +1,25 @@
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { createParamDecorator, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 
 export const GetCurrentUserId = createParamDecorator(
   (data: undefined, context: ExecutionContext): number => {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
-    const id = user?.userId ?? user?.sub;
-    if (typeof id === 'string') {
-      const parsed = parseInt(id, 10);
-      return Number.isNaN(parsed) ? (id as unknown as number) : parsed;
+    
+    if (!user) {
+      throw new UnauthorizedException({
+        message: 'Token missing or invalid',
+        code: 'TOKEN_INVALID'
+      });
     }
-    return id;
+
+    const userId = user.sub || user.userId || user.id;
+    if (!userId) {
+      throw new UnauthorizedException({
+        message: 'Invalid token payload',
+        code: 'TOKEN_INVALID'
+      });
+    }
+    
+    return Number(userId);
   },
 );

@@ -5,6 +5,12 @@ import { GetCurrentUserId } from '../auth/common/decorators/get-current-user-id.
 import { DogEventsService } from './dog-events.service';
 import { APP_HEADERS } from '../common/swagger/app-headers';
 
+/**
+ * Events Controller - 单个事件查询接口
+ *
+ * 认证方式: Bearer Token (Access Token)
+ * 公共请求头: 参见 APP_HEADERS
+ */
 @ApiTags('Events')
 @ApiHeaders(APP_HEADERS)
 @ApiBearerAuth()
@@ -13,6 +19,14 @@ import { APP_HEADERS } from '../common/swagger/app-headers';
 export class EventsController {
   constructor(private readonly dogEventsService: DogEventsService) {}
 
+  /**
+   * 获取单个事件详情
+   *
+   * @param userId - 从Token中提取的用户ID
+   * @param eventId - 事件ID (Path)
+   * @returns 事件详情 (包含宠物信息)
+   * @throws NotFoundException - 事件不存在或无权限
+   */
   @Get(':eventId')
   @ApiOperation({ summary: 'Get Event', description: 'Retrieve detailed information for a specific event.' })
   @ApiParam({ name: 'eventId', description: 'Event ID' })

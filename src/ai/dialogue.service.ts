@@ -25,11 +25,13 @@ export class DialogueService {
   private readonly apiBase: string;
   private readonly apiKey: string | undefined;
   private readonly model: string;
+  private readonly configured: boolean;
 
   constructor(private readonly prisma: PrismaService) {
     this.apiBase = (process.env.GEMINI3_API_BASE ?? 'http://menshen.xdf.cn/v1').replace(/\/$/, '');
     this.apiKey = process.env.GEMINI3_API_KEY;
     this.model = process.env.GEMINI3_MODEL ?? 'gemini-3.0-pro-preview';
+    this.configured = !!this.apiKey;
   }
 
   async turn(params: {
@@ -39,7 +41,7 @@ export class DialogueService {
     petId?: number;
     locale?: string;
   }): Promise<DialogueTurnResult> {
-    if (!this.apiKey) {
+    if (!this.configured) {
       throw new ServiceUnavailableException('AI is not configured');
     }
 

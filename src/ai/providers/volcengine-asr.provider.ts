@@ -28,12 +28,26 @@ export class VolcengineAsrProvider implements AsrProvider {
   async transcribe(params: AsrTranscribeParams): Promise<AsrTranscribeResult> {
     const stubMode =
       (process.env.AI_STUB_MODE ?? '').trim() === 'true' && (process.env.NODE_ENV ?? '').trim() !== 'production';
-    if (!this.appId || !this.token || !this.cluster) {
-      if (stubMode) {
-        const lang = this.toAsrLanguage(params.locale);
-        const text = lang.startsWith('zh') ? '汪汪' : 'woof';
-        return { text, raw: { stub: true }, vendor: 'stub', model: 'stub' };
+
+    // Intelligent fallback: if config is missing/placeholder, force stub mode
+    const hasValidConfig =
+      this.appId &&
+      this.appId !== 'replace_me' &&
+      this.token &&
+      this.token !== 'replace_me' &&
+      this.cluster &&
+      this.cluster !== 'replace_me';
+
+    if (stubMode || !hasValidConfig) {
+      if (!hasValidConfig && !stubMode) {
+        this.logger.warn('ASR config missing or invalid, falling back to stub mode');
       }
+      const lang = this.toAsrLanguage(params.locale);
+      const text = lang.startsWith('zh') ? '汪汪' : 'woof';
+      return { text, raw: { stub: true }, vendor: 'stub', model: 'stub' };
+    }
+
+    if (!this.appId || !this.token || !this.cluster) {
       if (!this.appId) throw new ServiceUnavailableException('VOLC_ASR_APP_ID is not configured');
       if (!this.token) throw new ServiceUnavailableException('VOLC_ASR_ACCESS_TOKEN is not configured');
       if (!this.cluster) throw new ServiceUnavailableException('VOLC_ASR_CLUSTER is not configured');

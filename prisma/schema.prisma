@@ -1,99 +1,197 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
-  // previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
+  // 开发环境使用 SQLite
+  // 生产环境请切换为 PostgreSQL:
+  // provider = "postgresql"
+  // url      = env("DATABASE_URL")
   provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  password  String
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  otp       String?
-  otpExpiry DateTime?
-  hashedRt  String?
 
-  pets      Pet[]
-}
-
-model Pet {
-  id               Int       @id @default(autoincrement())
-  ownerId          Int
-  owner            User      @relation(fields: [ownerId], references: [id])
-  species          String    @default("DOG") // Enum SpeciesType
-  name             String
-  sex              String    // Enum PetSexType
-  birthDate        DateTime
-  breedId          String
-  isSpayedNeutered Boolean   @default(false)
-  avatarMediaId    Int?      @unique
-  avatarMedia      PetMedia? @relation("PetAvatar", fields: [avatarMediaId], references: [id])
-
-  media  PetMedia[] @relation("PetGallery")
-  events DogEvent[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model PetMedia {
-  id          Int      @id @default(autoincrement())
-  petId       Int
-  pet         Pet      @relation("PetGallery", fields: [petId], references: [id])
-  type        String   // Enum PetMediaType
-  objectKey   String
-  contentType String
-  sizeBytes   Int
-  width       Int?
-  height      Int?
-  durationMs  Int?
-
-  petAvatar Pet? @relation("PetAvatar")
-
-  createdAt DateTime @default(now())
+model Comment {
+  id            Int        @id @default(autoincrement())
+  postId        Int
+  userId        Int
+  parentId      Int?
+  content       String
+  likesCount    Int        @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime
+  Comment       Comment?   @relation("CommentToComment", fields: [parentId], references: [id])
+  other_Comment Comment[]  @relation("CommentToComment")
+  User          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  SocialPost    SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  Like          Like[]
 }
 
 model DogEvent {
-  id          Int      @id @default(autoincrement())
-  petId       Int
-  pet         Pet      @relation(fields: [petId], references: [id])
-  eventType   String   // Enum DogVocalEventType
-  stateType   String?  // Enum DogStateType
-  contextType String?  // Enum DogContextType
-  confidence  Float?
-  audioUrl    String?
-  outputAudioUrl String?
-  mode        String?
-  meaningText String?
+  id              Int      @id @default(autoincrement())
+  petId           Int
+  eventType       String
+  stateType       String?
+  contextType     String?
+  confidence      Float?
+  audioUrl        String?
+  createdAt       DateTime @default(now())
   inputTranscript String?
+  meaningText     String?
+  mode            String?
+  outputAudioUrl  String?
+  Pet             Pet      @relation(fields: [petId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
-}
-
-model BlacklistedToken {
-  id        Int      @id @default(autoincrement())
-  token     String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  @@index([petId])
+  @@index([createdAt])
+  @@index([eventType])
 }
 
 model DogTask {
-  id        String   @id @default(uuid())
+  id        String   @id
   userId    Int
   petId     Int
-  type      String   // "INTERPRET" | "SYNTHESIZE"
-  status    String   // "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED"
-  result    String?  // JSON string
+  type      String
+  status    String
+  result    String?
   error     String?
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime
+  Pet       Pet      @relation(fields: [petId], references: [id], onDelete: Cascade)
+  User      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([petId])
+  @@index([status])
+}
+
+model Follow {
+  id                            Int      @id @default(autoincrement())
+  followerId                    Int
+  followingId                   Int
+  createdAt                     DateTime @default(now())
+  User_Follow_followingIdToUser User     @relation("Follow_followingIdToUser", fields: [followingId], references: [id], onDelete: Cascade)
+  User_Follow_followerIdToUser  User     @relation("Follow_followerIdToUser", fields: [followerId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+}
+
+model Like {
+  id         Int        @id @default(autoincrement())
+  userId     Int
+  targetId   Int
+  targetType String
+  createdAt  DateTime   @default(now())
+  Comment    Comment    @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  SocialPost SocialPost @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  User       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, targetId, targetType])
+  @@index([userId])
+  @@index([targetId, targetType])
+}
+
+model Notification {
+  id                               Int      @id @default(autoincrement())
+  userId                           Int
+  senderId                         Int
+  type                             String
+  content                          String
+  isRead                           Boolean  @default(false)
+  createdAt                        DateTime @default(now())
+  updatedAt                        DateTime
+  User_Notification_senderIdToUser User     @relation("Notification_senderIdToUser", fields: [senderId], references: [id], onDelete: Cascade)
+  User_Notification_userIdToUser   User     @relation("Notification_userIdToUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([senderId])
+}
+
+model Pet {
+  id                                   Int          @id @default(autoincrement())
+  ownerId                              Int
+  species                              String       @default("DOG")
+  name                                 String
+  sex                                  String
+  birthDate                            DateTime
+  breedId                              String
+  isSpayedNeutered                     Boolean      @default(false)
+  avatarMediaId                        Int?         @unique
+  createdAt                            DateTime     @default(now())
+  updatedAt                            DateTime
+  deletedAt                            DateTime?
+  DogEvent                             DogEvent[]
+  DogTask                              DogTask[]
+  PetMedia_Pet_avatarMediaIdToPetMedia PetMedia?    @relation("Pet_avatarMediaIdToPetMedia", fields: [avatarMediaId], references: [id])
+  User                                 User         @relation(fields: [ownerId], references: [id])
+  PetMedia_PetMedia_petIdToPet         PetMedia[]   @relation("PetMedia_petIdToPet")
+  SocialPost                           SocialPost[]
+
+  @@index([ownerId])
+  @@index([deletedAt])
+}
+
+model PetMedia {
+  id                              Int      @id @default(autoincrement())
+  petId                           Int
+  type                            String
+  objectKey                       String
+  contentType                     String
+  sizeBytes                       Int
+  width                           Int?
+  height                          Int?
+  durationMs                      Int?
+  createdAt                       DateTime @default(now())
+  Pet_Pet_avatarMediaIdToPetMedia Pet?     @relation("Pet_avatarMediaIdToPetMedia")
+  Pet_PetMedia_petIdToPet         Pet      @relation("PetMedia_petIdToPet", fields: [petId], references: [id], onDelete: Cascade)
+}
+
+model SocialPost {
+  id            Int       @id @default(autoincrement())
+  userId        Int
+  petId         Int?
+  content       String
+  mediaUrls     String    @default("[]")
+  location      String?
+  tags          String    @default("[]")
+  likesCount    Int       @default(0)
+  commentsCount Int       @default(0)
+  sharesCount   Int       @default(0)
+  visibility    String    @default("PUBLIC")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime
+  Comment       Comment[]
+  Like          Like[]
+  Pet           Pet?      @relation(fields: [petId], references: [id])
+  User          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([petId])
+  @@index([createdAt])
+  @@index([visibility])
+}
+
+model User {
+  id                                       Int            @id @default(autoincrement())
+  email                                    String         @unique
+  password                                 String
+  name                                     String?
+  createdAt                                DateTime       @default(now())
+  updatedAt                                DateTime
+  deletedAt                                DateTime?
+  hashedRt                                 String?
+  otp                                      String?
+  otpExpiry                                DateTime?
+  Comment                                  Comment[]
+  DogTask                                  DogTask[]
+  Follow_Follow_followingIdToUser          Follow[]       @relation("Follow_followingIdToUser")
+  Follow_Follow_followerIdToUser           Follow[]       @relation("Follow_followerIdToUser")
+  Like                                     Like[]
+  Notification_Notification_senderIdToUser Notification[] @relation("Notification_senderIdToUser")
+  Notification_Notification_userIdToUser   Notification[] @relation("Notification_userIdToUser")
+  Pet                                      Pet[]
+  SocialPost                               SocialPost[]
 }

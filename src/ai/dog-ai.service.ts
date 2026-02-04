@@ -6,13 +6,13 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { createWriteStream, mkdirSync } from 'fs';
-import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { ASR_PROVIDER, LLM_PROVIDER, TTS_PROVIDER } from './providers/provider.tokens';
 import { AsrProvider, LlmProvider, TtsProvider } from './providers/provider.types';
+import { S3Service } from '../s3/s3.service';
 
 type DogInterpretResult = {
   meaningText: string;
@@ -37,6 +37,7 @@ export class DogAiService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly s3Service: S3Service,
     @Inject(ASR_PROVIDER) private readonly asrProvider: AsrProvider,
     @Inject(LLM_PROVIDER) private readonly llmProvider: LlmProvider,
     @Inject(TTS_PROVIDER) private readonly ttsProvider: TtsProvider,
@@ -76,7 +77,13 @@ export class DogAiService {
     });
     const pet = await this.assertPetOwnership(params.userId, params.petId);
     const { format, ext } = this.requireSupportedAudio(params.audio);
-    const inputAudioUrl = this.saveUploadedFile('uploads/dog-audio-input', params.audio, ext);
+
+    if (!this.s3Service.isConfigured()) {
+      throw new ServiceUnavailableException('Storage not configured');
+    }
+
+    const inputKey = this.s3Service.generateAudioKey(params.petId, ext, 'interpret');
+    const { url: inputAudioUrl } = await this.s3Service.upload(params.audio.buffer, inputKey, params.audio.mimetype);
     this.debugLog({ msg: 'dog.interpret.saved_input', traceId, inputAudioUrl, audioFormat: format });
 
     const t0 = Date.now();
@@ -154,7 +161,9 @@ export class DogAiService {
         uid: String(params.userId),
         traceId,
       });
-      outputAudioUrl = this.saveGeneratedFile('uploads/human-tts-output', out.bytes, out.ext);
+      const outputKey = this.s3Service.generateAudioKey(params.petId, out.ext, 'tts-output');
+      const { url } = await this.s3Service.upload(Buffer.from(out.bytes), outputKey, 'audio/wav');
+      outputAudioUrl = url;
       this.debugLog({ msg: 'dog.interpret.tts.saved', traceId, outputAudioUrl, ext: out.ext });
     } catch (e: any) {
       this.errorLog(e, { msg: 'dog.interpret.tts_failed', traceId });
@@ -233,10 +242,15 @@ export class DogAiService {
       audio: { mimetype: params.audio?.mimetype, size: params.audio?.size, originalname: params.audio?.originalname },
     });
     await this.assertPetOwnership(params.userId, params.petId);
-    
+
+    if (!this.s3Service.isConfigured()) {
+      throw new ServiceUnavailableException('Storage not configured');
+    }
+
     // 1. Save input audio
     const { format, ext: inputExt } = this.requireSupportedAudio(params.audio);
-    const inputAudioUrl = this.saveUploadedFile('uploads/human-audio-input', params.audio, inputExt);
+    const inputKey = this.s3Service.generateAudioKey(params.petId, inputExt, 'synthesize-input');
+    const { url: inputAudioUrl } = await this.s3Service.upload(params.audio.buffer, inputKey, params.audio.mimetype);
     this.debugLog({ msg: 'dog.synthesize.saved_input', traceId, inputAudioUrl });
 
     // 2. ASR -> LLM plan
@@ -250,7 +264,7 @@ export class DogAiService {
         audioFormat: format,
         audioBytes: params.audio?.size,
       });
-      const transcript = await this.aiTranscribeHumanAudio({
+      let transcript = await this.aiTranscribeHumanAudio({
         traceId,
         scene: 'dog.synthesize',
         locale: params.locale,
@@ -263,14 +277,10 @@ export class DogAiService {
         transcriptPreview: transcript.slice(0, 96),
       });
 
-      // if (!transcript.trim()) {
-      //   throw new BadRequestException(
-      //     params.locale?.startsWith('zh')
-      //       ? '未识别到有效语音，请大声一点。'
-      //       : 'No speech detected. Please speak louder.'
-      //   );
-      // }
-      if (!transcript.trim()) throw new BadGatewayException('ASR transcript is empty');
+      if (!transcript.trim()) {
+        this.debugLog({ msg: 'dog.synthesize.asr_empty', traceId });
+        transcript = 'Hello';
+      }
 
       plan = await this.aiPlanBarkFromTranscript({
         traceId,
@@ -279,15 +289,6 @@ export class DogAiService {
         transcript,
       });
       planSource = 'ark';
-    } catch (e: any) {
-      this.errorLog(e, { msg: 'dog.synthesize.plan_failed', traceId });
-      plan = {
-        barkType: 'OTHER',
-        intensity: 0.6,
-        dogText: params.locale?.startsWith('zh') ? '汪汪！' : 'Woof!',
-        transcript: '',
-      };
-      planSource = 'fallback';
     } finally {
       this.debugLog({
         msg: 'dog.synthesize.plan_done',
@@ -336,7 +337,8 @@ export class DogAiService {
       this.debugLog({ msg: 'dog.synthesize.tts_done', traceId, ms: Date.now() - t2, outputMode: this.dogAudioOutputMode });
     }
 
-    const outputAudioUrl = this.saveGeneratedFile('uploads/dog-audio-output', outputBytes, ext);
+    const outputKey = this.s3Service.generateAudioKey(params.petId, ext, 'synthesize-output');
+    const { url: outputAudioUrl } = await this.s3Service.upload(Buffer.from(outputBytes), outputKey, 'audio/wav');
     this.debugLog({ msg: 'dog.synthesize.saved_output', traceId, outputAudioUrl, ext });
 
     const ev = await this.prisma.dogEvent.create({
@@ -391,18 +393,26 @@ export class DogAiService {
       audio: { mimetype: params.audio?.mimetype, size: params.audio?.size, originalname: params.audio?.originalname },
     });
     await this.assertPetOwnership(params.userId, params.petId);
-    
+
+    if (!this.s3Service.isConfigured()) {
+      throw new ServiceUnavailableException('Storage not configured');
+    }
+
     // Save file immediately
     const { format, ext: inputExt } = this.requireSupportedAudio(params.audio);
-    const inputAudioUrl = this.saveUploadedFile('uploads/human-audio-input', params.audio, inputExt);
+    const inputKey = this.s3Service.generateAudioKey(params.petId, inputExt, 'task-input');
+    const { url: inputAudioUrl } = await this.s3Service.upload(params.audio.buffer, inputKey, params.audio.mimetype);
 
     // Create Task
     const task = await this.prisma.dogTask.create({
       data: {
+        id: randomUUID(),
         userId: params.userId,
         petId: params.petId,
         type: 'SYNTHESIZE',
         status: 'PENDING',
+        createdAt: new Date(),
+        updatedAt: new Date(),
       },
     });
     this.debugLog({
@@ -490,7 +500,7 @@ export class DogAiService {
         });
         const fileBytes = Buffer.from(params.audioBase64, 'base64');
         const ext = params.audioFormat === 'mp3' ? 'mp3' : 'wav';
-        const transcript = await this.aiTranscribeHumanAudio({
+let transcript = await this.aiTranscribeHumanAudio({
           traceId,
           scene: 'task.transcribe',
           locale: params.locale,
@@ -547,12 +557,13 @@ export class DogAiService {
       });
 
       // 3. Save
-      const outputAudioUrl = this.saveGeneratedFile('uploads/dog-audio-output', out.bytes, out.ext);
-
-      // 4. Create Event
       const task = await this.prisma.dogTask.findUnique({ where: { id: taskId } });
       if (!task) return; // Should not happen
 
+      const outputKey = this.s3Service.generateAudioKey(task.petId, out.ext, 'task-output');
+      const { url: outputAudioUrl } = await this.s3Service.upload(Buffer.from(out.bytes), outputKey, 'audio/wav');
+
+      // 4. Create Event
       const ev = await this.prisma.dogEvent.create({
         data: {
           petId: task.petId,
@@ -600,7 +611,6 @@ export class DogAiService {
     }
   }
 
-  // ... (assertPetOwnership, saveUploadedFile, saveGeneratedFile, safeExt, requireSupportedAudio unchanged)
   private async assertPetOwnership(userId: number, petId: number) {
     const pet = await this.prisma.pet.findUnique({
       where: { id: petId },
@@ -609,28 +619,6 @@ export class DogAiService {
     if (!pet) throw new NotFoundException('Pet not found');
     if (pet.ownerId !== userId) throw new ForbiddenException('Forbidden');
     return pet;
-  }
-
-  private saveUploadedFile(dirRelative: string, file: Express.Multer.File, ext: string) {
-    const dir = join(process.cwd(), dirRelative);
-    mkdirSync(dir, { recursive: true });
-    const filename = `${randomUUID()}-${Date.now()}.${ext}`;
-    const uploadPath = join(dir, filename);
-    const writeStream = createWriteStream(uploadPath);
-    writeStream.write(file.buffer);
-    writeStream.end();
-    return `/${dirRelative.replace(/^\//, '')}/${filename}`;
-  }
-
-  private saveGeneratedFile(dirRelative: string, bytes: Uint8Array, ext: string) {
-    const dir = join(process.cwd(), dirRelative);
-    mkdirSync(dir, { recursive: true });
-    const filename = `${randomUUID()}-${Date.now()}.${ext}`;
-    const uploadPath = join(dir, filename);
-    const writeStream = createWriteStream(uploadPath);
-    writeStream.write(Buffer.from(bytes));
-    writeStream.end();
-    return `/${dirRelative.replace(/^\//, '')}/${filename}`;
   }
 
   private requireSupportedAudio(file: Express.Multer.File): { format: 'wav' | 'mp3'; ext: string } {

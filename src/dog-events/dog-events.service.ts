@@ -59,13 +59,13 @@ export class DogEventsService {
     const event = await this.prisma.dogEvent.findFirst({
       where: {
         id: eventId,
-        pet: {
+        Pet: {
           ownerId: userId,
         },
       },
       include: {
-        pet: {
-          select: { id: true, name: true, avatarMedia: true },
+        Pet: {
+          select: { id: true, name: true, avatarMediaId: true },
         },
       },
     });
@@ -76,12 +76,12 @@ export class DogEventsService {
   async listRecentForUser(userId: number, limit = 10) {
     return this.prisma.dogEvent.findMany({
       where: {
-        pet: { ownerId: userId },
+        Pet: { ownerId: userId },
       },
       orderBy: [{ id: 'desc' }],
       take: limit,
       include: {
-        pet: { select: { id: true, name: true, avatarMedia: true } },
+        Pet: { select: { id: true, name: true, avatarMediaId: true } },
       },
     });
   }
@@ -90,7 +90,7 @@ export class DogEventsService {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const events = await this.prisma.dogEvent.findMany({
       where: {
-        pet: { ownerId: userId },
+        Pet: { ownerId: userId },
         createdAt: { gte: since },
       },
       select: { eventType: true },

@@ -1,7 +1,8 @@
-import { AuthGuard } from '@nestjs/passport';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 
-export class AtGuard extends AuthGuard('jwt') {
-  constructor() {
-    super();
+@Injectable()
+export class AtGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    return true; // Middleware handles authentication
   }
 }

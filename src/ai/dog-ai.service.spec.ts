@@ -1,17 +1,45 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { DogAiService } from './dog-ai.service';
+import { S3Service } from '../s3/s3.service';
 
 describe('DogAiService', () => {
   let prisma: PrismaService;
   let service: DogAiService;
+
+  const mockS3Service = {
+    isConfigured: jest.fn().mockReturnValue(true),
+    upload: jest.fn().mockResolvedValue({ key: 'test/key.wav', url: 'https://test.com/key.wav' }),
+    generateAudioKey: jest.fn().mockReturnValue('pets/1/audio/test/2026-02-01/abc.wav'),
+    getPublicUrl: jest.fn().mockReturnValue('https://test.com/key.wav'),
+    delete: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockASRProvider = {
+    transcribe: jest.fn(),
+  };
+
+  const mockLLMProvider = {
+    generate: jest.fn(),
+  };
+
+  const mockTTSProvider = {
+    synthesize: jest.fn(),
+  };
 
   beforeAll(async () => {
     process.env.GEMINI3_API_KEY = 'test';
     process.env.DOG_AUDIO_OUTPUT_MODE = 'synthetic';
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [PrismaService, DogAiService],
+      providers: [
+        PrismaService,
+        DogAiService,
+        { provide: S3Service, useValue: mockS3Service },
+        { provide: 'ASR_PROVIDER', useValue: mockASRProvider },
+        { provide: 'LLM_PROVIDER', useValue: mockLLMProvider },
+        { provide: 'TTS_PROVIDER', useValue: mockTTSProvider },
+      ],
     }).compile();
 
     prisma = module.get<PrismaService>(PrismaService);
@@ -77,7 +105,8 @@ describe('DogAiService', () => {
 
     expect(out.eventId).toBeGreaterThan(0);
     expect(out.meaningText).toContain('兴奋');
-    expect(out.inputAudioUrl).toContain('/uploads/dog-audio-input/');
+    expect(out.inputAudioUrl).toContain('https://test.com/');
+    expect(mockS3Service.upload).toHaveBeenCalled();
 
     const ev = await prisma.dogEvent.findUnique({ where: { id: out.eventId } });
     expect(ev?.mode).toBe('DOG_TO_HUMAN');
@@ -135,8 +164,8 @@ describe('DogAiService', () => {
     });
 
     expect(out.eventId).toBeGreaterThan(0);
-    expect(out.inputAudioUrl).toContain('/uploads/human-audio-input/');
-    expect(out.outputAudioUrl).toContain('/uploads/dog-audio-output/');
+    expect(out.inputAudioUrl).toContain('https://test.com/');
+    expect(out.outputAudioUrl).toContain('https://test.com/');
 
     const ev = await prisma.dogEvent.findUnique({ where: { id: out.eventId } });
     expect(ev?.mode).toBe('HUMAN_TO_DOG');

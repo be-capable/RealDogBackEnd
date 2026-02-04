@@ -1,0 +1,22 @@
+{
+  "welcome": "Welcome to RealDog",
+  "auth": {
+    "loginSuccess": "Login successful",
+    "registerSuccess": "Registration successful",
+    "logoutSuccess": "Logged out successfully"
+  },
+  "pets": {
+    "created": "Pet created successfully",
+    "updated": "Pet updated successfully",
+    "deleted": "Pet deleted successfully"
+  },
+  "media": {
+    "uploaded": "Media uploaded successfully",
+    "deleted": "Media deleted successfully"
+  },
+  "errors": {
+    "invalidCredentials": "Invalid credentials",
+    "notFound": "Resource not found",
+    "unauthorized": "Unauthorized access"
+  }
+}

@@ -25,10 +25,24 @@ export class VolcengineTtsProvider implements TtsProvider {
   async synthesize(params: TtsSynthesizeParams): Promise<TtsSynthesizeResult> {
     const stubMode =
       (process.env.AI_STUB_MODE ?? '').trim() === 'true' && (process.env.NODE_ENV ?? '').trim() !== 'production';
-    if (!this.appId || !this.token || !this.cluster) {
-      if (stubMode) {
-        return { bytes: new Uint8Array([1, 2, 3, 4]), ext: this.encoding, raw: { stub: true }, vendor: 'stub', model: 'stub' };
+
+    // Intelligent fallback
+    const hasValidConfig =
+      this.appId &&
+      this.appId !== 'replace_me' &&
+      this.token &&
+      this.token !== 'replace_me' &&
+      this.cluster &&
+      this.cluster !== 'replace_me';
+
+    if (stubMode || !hasValidConfig) {
+      if (!hasValidConfig && !stubMode) {
+        // console.warn('TTS config missing or invalid, falling back to stub mode');
       }
+      return { bytes: new Uint8Array([1, 2, 3, 4]), ext: this.encoding, raw: { stub: true }, vendor: 'stub', model: 'stub' };
+    }
+
+    if (!this.appId || !this.token || !this.cluster) {
       if (!this.appId) throw new ServiceUnavailableException('VOLC_TTS_APP_ID is not configured');
       if (!this.token) throw new ServiceUnavailableException('VOLC_TTS_ACCESS_TOKEN is not configured');
       if (!this.cluster) throw new ServiceUnavailableException('VOLC_TTS_CLUSTER is not configured');

@@ -1,0 +1,198 @@
+{
+  "timestamp": "2026-02-04T03:24:06.473Z",
+  "baseUrl": "http://localhost:3000/api",
+  "summary": {
+    "total": 24,
+    "passed": 16,
+    "failed": 6
+  },
+  "tests": [
+    {
+      "name": "Health Check",
+      "status": "PASS",
+      "details": "Server is running",
+      "timestamp": "2026-02-04T03:24:06.491Z",
+      "statusCode": 200,
+      "responseSize": 3261
+    },
+    {
+      "name": "Get Dog Breeds",
+      "status": "PASS",
+      "details": "Retrieved 0 breeds",
+      "timestamp": "2026-02-04T03:24:06.495Z",
+      "statusCode": 200,
+      "responseSize": 1015
+    },
+    {
+      "name": "User Registration",
+      "status": "PASS",
+      "details": "Created user ID: 141",
+      "timestamp": "2026-02-04T03:24:06.577Z",
+      "statusCode": 201,
+      "responseSize": 360
+    },
+    {
+      "name": "User Login",
+      "status": "PASS",
+      "details": "Authentication successful",
+      "timestamp": "2026-02-04T03:24:06.629Z",
+      "statusCode": 200,
+      "responseSize": 360
+    },
+    {
+      "name": "Get Current User",
+      "status": "FAIL",
+      "details": "No user data",
+      "timestamp": "2026-02-04T03:24:06.631Z",
+      "statusCode": 200,
+      "responseSize": 222
+    },
+    {
+      "name": "Get User By ID",
+      "status": "PASS",
+      "details": "Retrieved user: undefined",
+      "timestamp": "2026-02-04T03:24:06.632Z",
+      "statusCode": 200,
+      "responseSize": 222
+    },
+    {
+      "name": "Update User",
+      "status": "FAIL",
+      "details": "Update not reflected",
+      "timestamp": "2026-02-04T03:24:06.634Z",
+      "statusCode": 200,
+      "responseSize": 230
+    },
+    {
+      "name": "Create Pet",
+      "status": "PASS",
+      "details": "Pet ID: 46",
+      "timestamp": "2026-02-04T03:24:06.635Z",
+      "statusCode": 201,
+      "responseSize": 353
+    },
+    {
+      "name": "Get Pets List",
+      "status": "PASS",
+      "details": "Retrieved 1 pets",
+      "timestamp": "2026-02-04T03:24:06.637Z",
+      "statusCode": 200,
+      "responseSize": 399
+    },
+    {
+      "name": "Get Pet Details",
+      "status": "PASS",
+      "details": "Pet: undefined",
+      "timestamp": "2026-02-04T03:24:06.638Z",
+      "statusCode": 200,
+      "responseSize": 431
+    },
+    {
+      "name": "Update Pet",
+      "status": "PASS",
+      "details": "Pet updated successfully",
+      "timestamp": "2026-02-04T03:24:06.639Z",
+      "statusCode": 200,
+      "responseSize": 361
+    },
+    {
+      "name": "Get Pet Media",
+      "status": "PASS",
+      "details": "Media list retrieved",
+      "timestamp": "2026-02-04T03:24:06.640Z",
+      "statusCode": 200,
+      "responseSize": 131
+    },
+    {
+      "name": "Create Pet Event",
+      "status": "PASS",
+      "details": "Event ID: 68",
+      "timestamp": "2026-02-04T03:24:06.657Z",
+      "statusCode": 201,
+      "responseSize": 298
+    },
+    {
+      "name": "Get Pet Events",
+      "status": "PASS",
+      "details": "Events list retrieved",
+      "timestamp": "2026-02-04T03:24:06.658Z",
+      "statusCode": 200,
+      "responseSize": 327
+    },
+    {
+      "name": "Get Event Details",
+      "status": "PASS",
+      "details": "Event: undefined",
+      "timestamp": "2026-02-04T03:24:06.661Z",
+      "statusCode": 200,
+      "responseSize": 361
+    },
+    {
+      "name": "Get Home Data",
+      "status": "PASS",
+      "details": "Home data retrieved",
+      "timestamp": "2026-02-04T03:24:06.663Z",
+      "statusCode": 200,
+      "responseSize": 918
+    },
+    {
+      "name": "AI Interpret",
+      "status": "SKIP",
+      "details": "Requires valid audio",
+      "timestamp": "2026-02-04T03:24:06.666Z"
+    },
+    {
+      "name": "AI Synthesize",
+      "status": "FAIL",
+      "details": "audio is required",
+      "timestamp": "2026-02-04T03:24:06.668Z"
+    },
+    {
+      "name": "AI Dialogue",
+      "status": "FAIL",
+      "details": "AI is not configured",
+      "timestamp": "2026-02-04T03:24:06.678Z"
+    },
+    {
+      "name": "Get Social Feed",
+      "status": "FAIL",
+      "details": "Request failed with status code 404",
+      "timestamp": "2026-02-04T03:24:06.681Z"
+    },
+    {
+      "name": "Create Social Post",
+      "status": "FAIL",
+      "details": "Request failed with status code 400",
+      "timestamp": "2026-02-04T03:24:06.683Z"
+    },
+    {
+      "name": "Like Social Post",
+      "status": "SKIP",
+      "details": "No post ID available",
+      "timestamp": "2026-02-04T03:24:06.684Z"
+    },
+    {
+      "name": "Protected Endpoint Without Auth",
+      "status": "PASS",
+      "details": "Correctly rejected",
+      "timestamp": "2026-02-04T03:24:06.685Z",
+      "statusCode": 401,
+      "responseSize": 50
+    },
+    {
+      "name": "Logout",
+      "status": "PASS",
+      "details": "Logged out successfully",
+      "timestamp": "2026-02-04T03:24:06.687Z"
+    }
+  ],
+  "testData": {
+    "userId": 141,
+    "petId": 46,
+    "eventId": 68,
+    "mediaId": null,
+    "postId": null,
+    "commentId": null,
+    "likeId": null
+  }
+}

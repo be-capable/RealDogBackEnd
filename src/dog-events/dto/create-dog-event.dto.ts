@@ -1,5 +1,7 @@
-import { IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+const DOG_EVENT_TYPES = ['BARK', 'HOWL', 'WHINE', 'GROWL', 'OTHER'] as const;
 
 export class CreateDogEventDto {
   /**
@@ -7,7 +9,8 @@ export class CreateDogEventDto {
    * @example 'BARK'
    */
   @IsString()
-  @ApiProperty({ description: '事件类型（Body 字段）', example: 'BARK' })
+  @IsIn(DOG_EVENT_TYPES)
+  @ApiProperty({ description: '事件类型', enum: DOG_EVENT_TYPES, example: 'BARK' })
   eventType: string;
 
   /**

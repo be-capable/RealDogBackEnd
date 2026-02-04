@@ -1,6 +1,14 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
 import { Request, Response } from 'express';
 
+interface ErrorResponse {
+  success: boolean;
+  code: number;
+  error: string;
+  message?: string;
+  timestamp: string;
+}
+
 @Catch(HttpException)
 export class HttpExceptionLoggingFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionLoggingFilter.name);
@@ -12,25 +20,24 @@ export class HttpExceptionLoggingFilter implements ExceptionFilter {
 
     const status = exception.getStatus();
     const url = (req as any).originalUrl ?? req.url;
-    const hasAuth = typeof req.headers.authorization === 'string' && req.headers.authorization.length > 0;
 
-    const payload = {
-      status,
-      method: req.method,
-      url,
-      hasAuth,
+    const payload: ErrorResponse = {
+      success: false,
+      code: status,
+      error: exception.name,
+      message: exception.message,
+      timestamp: new Date().toISOString(),
     };
 
     if (status === 401) {
-      this.logger.warn(JSON.stringify(payload));
+      this.logger.warn(`[401] ${req.method} ${url}`);
     } else if (status >= 500) {
-      this.logger.error(JSON.stringify(payload), exception.stack);
+      this.logger.error(`[${status}] ${req.method} ${url}`, exception.stack);
     } else {
-      this.logger.warn(JSON.stringify(payload));
+      this.logger.warn(`[${status}] ${req.method} ${url}`);
     }
 
-    const body = exception.getResponse();
-    res.status(status).json(body);
+    res.status(status).json(payload);
   }
 }
 

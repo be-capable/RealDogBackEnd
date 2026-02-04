@@ -17,19 +17,37 @@ export class ArkLlmProvider implements LlmProvider {
   async chat(params: LlmChatParams): Promise<LlmChatResult> {
     const stubMode =
       (process.env.AI_STUB_MODE ?? '').trim() === 'true' && (process.env.NODE_ENV ?? '').trim() !== 'production';
-    if (!this.apiKey || !this.model) {
-      if (stubMode) {
-        const userText = params.messages?.map((m: any) => String(m?.content ?? '')).join('\n') ?? '';
-        const isZh = /[\u4e00-\u9fa5]/.test(userText);
-        const content = JSON.stringify({
-          meaningText: isZh ? '我在叫：我想引起你的注意。' : "I'm barking: I want your attention.",
-          dogEventType: 'OTHER',
-          stateType: null,
-          contextType: null,
-          confidence: 0.2,
-        });
-        return { content, raw: { stub: true }, vendor: 'stub', model: 'stub' };
+
+    // Intelligent fallback
+    const hasValidConfig =
+      this.apiKey &&
+      !this.apiKey.startsWith('api-key-') && // Check for placeholder
+      this.apiKey !== 'replace_me' &&
+      this.model &&
+      this.model !== 'replace_me';
+
+    if (stubMode || !hasValidConfig) {
+      if (!hasValidConfig && !stubMode) {
+        // console.warn('LLM config missing or invalid, falling back to stub mode');
       }
+      const userText = params.messages?.map((m: any) => String(m?.content ?? '')).join('\n') ?? '';
+      const isZh = /[\u4e00-\u9fa5]/.test(userText);
+      const content = JSON.stringify({
+        meaningText: isZh ? '我在叫：我想引起你的注意。' : "I'm barking: I want your attention.",
+        dogEventType: 'OTHER',
+        stateType: null,
+        contextType: null,
+        confidence: 0.2,
+        // For synthesis plan
+        barkType: 'BARK',
+        intensity: 0.8,
+        dogText: 'Woooof!',
+        transcript: isZh ? '汪汪' : 'Woof!',
+      });
+      return { content, raw: { stub: true }, vendor: 'stub', model: 'stub' };
+    }
+
+    if (!this.apiKey || !this.model) {
       if (!this.apiKey) throw new ServiceUnavailableException('ARK_API_KEY is not configured');
       if (!this.model) throw new ServiceUnavailableException('ARK_MODEL_ID is not configured');
     }

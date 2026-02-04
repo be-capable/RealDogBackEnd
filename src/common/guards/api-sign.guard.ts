@@ -4,13 +4,17 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class ApiSignGuard implements CanActivate {
-  // Should match the secret in Mobile App
-  private readonly APP_SECRET = 'real_dog_secret_salt_2025';
+  constructor(private configService: ConfigService) {}
+
+  private getAppSecret(): string {
+    return this.configService.get<string>('API_SIGN_SECRET') || '';
+  }
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
@@ -26,10 +30,7 @@ export class ApiSignGuard implements CanActivate {
     const sign = request.headers['x-app-sign'] as string;
 
     if (!timestamp || !nonce || !sign) {
-      // For development/testing convenience, you might want to skip if headers are missing
-      // But strictly, we should throw.
-      // throw new UnauthorizedException('Missing Signature Headers');
-      return true; // Skipping for now to avoid blocking non-mobile clients (like Postman/Browser)
+      throw new UnauthorizedException('Missing Signature Headers');
     }
 
     // 3. Verify Timestamp (e.g. within 5 minutes)
@@ -54,7 +55,7 @@ export class ApiSignGuard implements CanActivate {
     params['timestamp'] = timestamp;
     params['nonce'] = nonce;
 
-    const calculatedSign = this.generateSignature(params, this.APP_SECRET);
+    const calculatedSign = this.generateSignature(params, this.getAppSecret());
 
     if (calculatedSign !== sign) {
       throw new UnauthorizedException('Invalid Signature');
@@ -64,7 +65,6 @@ export class ApiSignGuard implements CanActivate {
   }
 
   private generateSignature(params: Record<string, any>, salt: string): string {
-    // 1. Filter out null/undefined/empty
     const validParams: Record<string, any> = {};
     for (const key in params) {
       const value = params[key];
@@ -73,10 +73,8 @@ export class ApiSignGuard implements CanActivate {
       }
     }
 
-    // 2. Sort keys
     const sortedKeys = Object.keys(validParams).sort();
 
-    // 3. Concat
     let str = '';
     for (let i = 0; i < sortedKeys.length; i++) {
       const key = sortedKeys[i];
@@ -87,10 +85,8 @@ export class ApiSignGuard implements CanActivate {
       }
     }
 
-    // 4. Append salt
     str += salt;
 
-    // 5. MD5
-    return crypto.createHash('md5').update(str).digest('hex');
+    return crypto.createHmac('sha256', salt).update(str).digest('hex');
   }
 }
