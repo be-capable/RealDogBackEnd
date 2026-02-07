@@ -7,12 +7,14 @@ import { ASR_PROVIDER, LLM_PROVIDER, TTS_PROVIDER } from './providers/provider.t
 import { ArkLlmProvider } from './providers/ark-llm.provider';
 import { VolcengineAsrProvider } from './providers/volcengine-asr.provider';
 import { VolcengineTtsProvider } from './providers/volcengine-tts.provider';
+import { I18nService } from '../i18n/i18n.service';
 
 @Module({
   controllers: [DialogueController, DogAiController],
   providers: [
     DialogueService,
     DogAiService,
+    I18nService,
     ArkLlmProvider,
     VolcengineAsrProvider,
     VolcengineTtsProvider,

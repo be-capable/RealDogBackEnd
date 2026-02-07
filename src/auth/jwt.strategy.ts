@@ -34,9 +34,21 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         throw new UnauthorizedException('No authorization header');
       }
 
+      const accessToken = authHeader.replace('Bearer', '').trim();
+
+      const isBlacklisted = await this.prisma.blacklistedToken.findUnique({
+        where: { token: accessToken },
+      });
+
+      if (isBlacklisted) {
+        this.logger.warn(`Token is blacklisted for user: ${payload.sub}`);
+        throw new UnauthorizedException('Token is invalidated');
+      }
+
       this.logger.log(`Token validated successfully for user: ${payload.sub}`);
       return { userId: payload.sub, email: payload.email };
     } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       this.logger.error(`JWT validation failed: ${error.message}`);
       throw new UnauthorizedException('Invalid token');
     }

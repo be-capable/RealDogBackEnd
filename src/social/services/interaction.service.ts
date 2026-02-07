@@ -2,15 +2,17 @@ import { Injectable, ConflictException, NotFoundException, ForbiddenException, B
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from './notification.service';
 import { NotificationType } from '../enums/notification-type.enum';
+import { I18nService } from '../../i18n/i18n.service';
 
 @Injectable()
 export class InteractionService {
   constructor(
     private prisma: PrismaService,
     private notificationService: NotificationService,
+    private i18nService: I18nService,
   ) {}
 
-  async like(userId: number, targetId: number, targetType: 'post' | 'comment') {
+  async like(userId: number, targetId: number, targetType: 'post' | 'comment', lang: string = 'en') {
     const existingLike = await this.prisma.like.findFirst({
       where: {
         userId,
@@ -20,7 +22,24 @@ export class InteractionService {
     });
 
     if (existingLike) {
-      return { message: 'Already liked', liked: true, like: existingLike };
+      return { message: this.i18nService.t('Already liked', lang), liked: true, like: existingLike };
+    }
+
+    // 在创建like之前验证目标是否存在
+    if (targetType === 'post') {
+      const post = await this.prisma.socialPost.findUnique({
+        where: { id: targetId },
+      });
+      if (!post) {
+        throw new NotFoundException(this.i18nService.t('Post not found', lang));
+      }
+    } else if (targetType === 'comment') {
+      const comment = await this.prisma.comment.findUnique({
+        where: { id: targetId },
+      });
+      if (!comment) {
+        throw new NotFoundException(this.i18nService.t('Comment not found', lang));
+      }
     }
 
     const like = await this.prisma.like.create({
@@ -49,8 +68,8 @@ export class InteractionService {
           userId: post.userId,
           senderId: userId,
           type: NotificationType.LIKE as any,
-          content: `用户点赞了你的动态`,
-        });
+          content: this.i18nService.t('用户点赞了你的动态', lang),
+        }, lang);
       }
     } else if (targetType === 'comment') {
       await this.prisma.comment.update({
@@ -70,25 +89,25 @@ export class InteractionService {
           userId: comment.userId,
           senderId: userId,
           type: NotificationType.LIKE as any,
-          content: `用户点赞了你的评论`,
-        });
+          content: this.i18nService.t('用户点赞了你的评论', lang),
+        }, lang);
       }
     }
 
-    return { message: 'Liked successfully', liked: true, like };
+    return { message: this.i18nService.t('Liked successfully', lang), liked: true, like };
   }
 
-  async unlike(userId: number, likeId: number) {
+  async unlike(userId: number, likeId: number, lang: string = 'en') {
     const like = await this.prisma.like.findUnique({
       where: { id: likeId },
     });
 
     if (!like) {
-      throw new NotFoundException('Like not found');
+      throw new NotFoundException(this.i18nService.t('Like not found', lang));
     }
 
     if (like.userId !== userId) {
-      throw new ForbiddenException('Permission denied');
+      throw new ForbiddenException(this.i18nService.t('Permission denied', lang));
     }
 
     const deletedLike = await this.prisma.like.delete({
@@ -111,16 +130,157 @@ export class InteractionService {
       });
     }
 
-    return { message: 'Unliked successfully', liked: false };
+    return { message: this.i18nService.t('Unliked successfully', lang), liked: false };
   }
 
-  async comment(userId: number, postId: number, content: string, parentId?: number) {
+  async getPostLikers(postId: number, lang: string = 'en') {
+    const likes = await this.prisma.like.findMany({
+      where: {
+        targetId: postId,
+        targetType: 'post'
+      },
+      include: {
+        User: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true,
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    return likes.map(like => ({
+      id: like.User.id,
+      name: like.User.name,
+      email: like.User.email,
+      avatar: like.User.avatar,
+      likedAt: like.createdAt
+    }));
+  }
+
+  async share(userId: number, postId: number, lang: string = 'en') {
+    // 验证帖子是否存在
     const post = await this.prisma.socialPost.findUnique({
       where: { id: postId },
     });
 
     if (!post) {
-      throw new NotFoundException('Post not found');
+      throw new NotFoundException(this.i18nService.t('Post not found', lang));
+    }
+
+    // 检查是否已经分享过这个帖子（使用Like表存储分享记录）
+    const existingShare = await this.prisma.like.findFirst({
+      where: {
+        userId,
+        targetId: postId,
+        targetType: 'share'
+      },
+    });
+
+    if (existingShare) {
+      throw new ConflictException(this.i18nService.t('Already shared this post', lang));
+    }
+
+    // 创建分享记录（使用Like表）
+    const shareRecord = await this.prisma.like.create({
+      data: {
+        userId,
+        targetId: postId,
+        targetType: 'share',
+      },
+    });
+
+    // 增加原始帖子的分享计数
+    await this.prisma.socialPost.update({
+      where: { id: postId },
+      data: {
+        sharesCount: { increment: 1 },
+      },
+    });
+
+    // 通知原作者
+    if (post.userId !== userId) {
+      await this.notificationService.createNotification({
+        userId: post.userId,
+        senderId: userId,
+        type: 'SHARE' as any,
+        content: this.i18nService.t('用户分享了你的动态', lang),
+      }, lang);
+    }
+
+    return { 
+      message: this.i18nService.t('Shared successfully', lang), 
+      shared: true, 
+      shareId: shareRecord.id 
+    };
+  }
+
+  async unshare(userId: number, shareId: number, lang: string = 'en') {
+    const shareRecord = await this.prisma.like.findUnique({
+      where: { id: shareId },
+    });
+
+    if (!shareRecord) {
+      throw new NotFoundException(this.i18nService.t('Share not found', lang));
+    }
+
+    if (shareRecord.userId !== userId || shareRecord.targetType !== 'share') {
+      throw new ForbiddenException(this.i18nService.t('Permission denied', lang));
+    }
+
+    const deletedShare = await this.prisma.like.delete({
+      where: { id: shareId },
+    });
+
+    // 减少原始帖子的分享计数
+    await this.prisma.socialPost.update({
+      where: { id: shareRecord.targetId },
+      data: {
+        sharesCount: { decrement: 1 },
+      },
+    });
+
+    return { message: this.i18nService.t('Unshared successfully', lang), shared: false };
+  }
+
+  async getPostSharers(postId: number, lang: string = 'en') {
+    const shares = await this.prisma.like.findMany({
+      where: {
+        targetId: postId,
+        targetType: 'share'
+      },
+      include: {
+        User: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true,
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    return shares.map(share => ({
+      id: share.User.id,
+      name: share.User.name,
+      email: share.User.email,
+      avatar: share.User.avatar,
+      sharedAt: share.createdAt
+    }));
+  }
+
+  async comment(userId: number, postId: number, content: string, parentId?: number, lang: string = 'en') {
+    const post = await this.prisma.socialPost.findUnique({
+      where: { id: postId },
+    });
+
+    if (!post) {
+      throw new NotFoundException(this.i18nService.t('Post not found', lang));
     }
 
     if (parentId) {
@@ -129,12 +289,12 @@ export class InteractionService {
       });
 
       if (!parentComment || parentComment.postId !== postId) {
-        throw new NotFoundException('Parent comment not found');
+        throw new NotFoundException(this.i18nService.t('Parent comment not found', lang));
       }
     }
 
     if (!content || content.trim().length === 0) {
-      throw new BadRequestException('Comment content cannot be empty');
+      throw new BadRequestException(this.i18nService.t('Comment content cannot be empty', lang));
     }
 
     const comment = await this.prisma.comment.create({
@@ -155,7 +315,7 @@ export class InteractionService {
         },
         _count: {
           select: {
-            Like: true,
+            other_Comment: true,
           },
         },
       },
@@ -173,8 +333,8 @@ export class InteractionService {
         userId: post.userId,
         senderId: userId,
         type: NotificationType.COMMENT as any,
-        content: `用户评论了你的动态`,
-      });
+        content: this.i18nService.t('用户评论了你的动态', lang),
+      }, lang);
     }
 
     if (parentId) {
@@ -188,15 +348,15 @@ export class InteractionService {
           userId: parentComment.userId,
           senderId: userId,
           type: NotificationType.COMMENT as any,
-          content: `用户回复了你的评论`,
-        });
+          content: this.i18nService.t('用户回复了你的评论', lang),
+        }, lang);
       }
     }
 
     return comment;
   }
 
-  async getComments(postId: number, page: number = 1, limit: number = 10) {
+  async getComments(postId: number, page: number = 1, limit: number = 10, lang: string = 'en') {
     const comments = await this.prisma.comment.findMany({
       where: {
         postId,
@@ -212,7 +372,6 @@ export class InteractionService {
         },
         _count: {
           select: {
-            Like: true,
             other_Comment: true,
           },
         },
@@ -227,7 +386,7 @@ export class InteractionService {
             },
             _count: {
               select: {
-                Like: true,
+                other_Comment: true,
               },
             },
           },
@@ -252,7 +411,7 @@ export class InteractionService {
     };
   }
 
-  async deleteComment(commentId: number, userId: number) {
+  async deleteComment(commentId: number, userId: number, lang: string = 'en') {
     const comment = await this.prisma.comment.findUnique({
       where: { id: commentId },
       include: {
@@ -261,11 +420,11 @@ export class InteractionService {
     });
 
     if (!comment) {
-      throw new NotFoundException('Comment not found');
+      throw new NotFoundException(this.i18nService.t('Comment not found', lang));
     }
 
     if (comment.userId !== userId && comment.SocialPost.userId !== userId) {
-      throw new ForbiddenException('Permission denied');
+      throw new ForbiddenException(this.i18nService.t('Permission denied', lang));
     }
 
     const childComments = await this.prisma.comment.findMany({
@@ -293,6 +452,6 @@ export class InteractionService {
       },
     });
 
-    return { success: true, message: 'Comment deleted successfully' };
+    return { success: true, message: this.i18nService.t('Comment deleted successfully', lang) };
   }
 }

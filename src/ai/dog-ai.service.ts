@@ -13,6 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ASR_PROVIDER, LLM_PROVIDER, TTS_PROVIDER } from './providers/provider.tokens';
 import { AsrProvider, LlmProvider, TtsProvider } from './providers/provider.types';
 import { S3Service } from '../s3/s3.service';
+import { I18nService } from '../i18n/i18n.service';
 
 type DogInterpretResult = {
   meaningText: string;
@@ -41,6 +42,7 @@ export class DogAiService {
     @Inject(ASR_PROVIDER) private readonly asrProvider: AsrProvider,
     @Inject(LLM_PROVIDER) private readonly llmProvider: LlmProvider,
     @Inject(TTS_PROVIDER) private readonly ttsProvider: TtsProvider,
+    private readonly i18nService: I18nService,
   ) {
     const mode = (process.env.DOG_AUDIO_OUTPUT_MODE ?? 'synthetic').trim();
     this.dogAudioOutputMode = mode === 'volc_tts' ? 'volc_tts' : 'synthetic';
@@ -65,7 +67,7 @@ export class DogAiService {
     locale?: string;
     context?: string;
     audio: Express.Multer.File;
-  }) {
+  }, lang: string = 'en') {
     const traceId = randomUUID();
     this.debugLog({
       msg: 'dog.interpret.start',
@@ -75,11 +77,11 @@ export class DogAiService {
       locale: params.locale,
       audio: { mimetype: params.audio?.mimetype, size: params.audio?.size, originalname: params.audio?.originalname },
     });
-    const pet = await this.assertPetOwnership(params.userId, params.petId);
-    const { format, ext } = this.requireSupportedAudio(params.audio);
+    const pet = await this.assertPetOwnership(params.userId, params.petId, lang);
+    const { format, ext } = this.requireSupportedAudio(params.audio, lang);
 
     if (!this.s3Service.isConfigured()) {
-      throw new ServiceUnavailableException('Storage not configured');
+      throw new ServiceUnavailableException(this.i18nService.t('Storage not configured', lang));
     }
 
     const inputKey = this.s3Service.generateAudioKey(params.petId, ext, 'interpret');
@@ -88,10 +90,10 @@ export class DogAiService {
 
     const t0 = Date.now();
     let transcript = '';
-    const lang = params.locale?.startsWith('zh') ? 'zh-CN' : 'en';
+    const detectLang = params.locale?.startsWith('zh') ? 'zh-CN' : 'en';
     let result: DogInterpretResult = {
       meaningText:
-        lang === 'zh-CN'
+        detectLang === 'zh-CN'
           ? '我在叫，但我也不太确定我想表达什么。可能是想引起你的注意。'
           : "I'm making noise, but I'm not sure what I mean. Maybe I'm trying to get your attention.",
       dogEventType: 'OTHER',
@@ -443,12 +445,12 @@ export class DogAiService {
   /**
    * Retrieves the status and result of a background task.
    */
-  async getTaskStatus(userId: number, taskId: string) {
+  async getTaskStatus(userId: number, taskId: string, lang: string = 'en') {
     const task = await this.prisma.dogTask.findUnique({
       where: { id: taskId },
     });
-    if (!task) throw new NotFoundException('Task not found');
-    if (task.userId !== userId) throw new ForbiddenException('Forbidden');
+    if (!task) throw new NotFoundException(this.i18nService.t('Task not found', lang));
+    if (task.userId !== userId) throw new ForbiddenException(this.i18nService.t('Forbidden', lang));
 
     let result = null;
     if (task.result) {
@@ -611,22 +613,22 @@ let transcript = await this.aiTranscribeHumanAudio({
     }
   }
 
-  private async assertPetOwnership(userId: number, petId: number) {
+  private async assertPetOwnership(userId: number, petId: number, lang: string = 'en') {
     const pet = await this.prisma.pet.findUnique({
       where: { id: petId },
       select: { id: true, ownerId: true, name: true, breedId: true },
     });
-    if (!pet) throw new NotFoundException('Pet not found');
-    if (pet.ownerId !== userId) throw new ForbiddenException('Forbidden');
+    if (!pet) throw new NotFoundException(this.i18nService.t('Pet not found', lang));
+    if (pet.ownerId !== userId) throw new ForbiddenException(this.i18nService.t('Forbidden', lang));
     return pet;
   }
 
-  private requireSupportedAudio(file: Express.Multer.File): { format: 'wav' | 'mp3'; ext: string } {
+  private requireSupportedAudio(file: Express.Multer.File, lang: string = 'en'): { format: 'wav' | 'mp3'; ext: string } {
     const mime = (file.mimetype ?? '').toLowerCase();
     const name = (file.originalname ?? '').toLowerCase();
     if (mime.includes('wav') || name.endsWith('.wav')) return { format: 'wav', ext: 'wav' };
     if (mime.includes('mpeg') || name.endsWith('.mp3')) return { format: 'mp3', ext: 'mp3' };
-    throw new BadRequestException('Unsupported audio format. Please upload wav or mp3.');
+    throw new BadRequestException(this.i18nService.t('Unsupported audio format. Please upload wav or mp3.', lang));
   }
 
   private async aiInterpretFromTranscript(params: {

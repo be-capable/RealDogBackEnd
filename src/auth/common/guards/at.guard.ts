@@ -1,8 +1,12 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 
 @Injectable()
-export class AtGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
-    return true; // Middleware handles authentication
+export class AtGuard extends AuthGuard('jwt') {
+  handleRequest(err: any, user: any, info: any) {
+    if (err || !user) {
+      throw err || new UnauthorizedException('Invalid or expired token');
+    }
+    return user;
   }
 }

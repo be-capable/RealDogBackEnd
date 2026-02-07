@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
+  Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -16,6 +17,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AtGuard } from './common/guards/at.guard';
 import { GetCurrentUserId } from './common/decorators/get-current-user-id.decorator';
 import { GetCurrentAccessToken } from './common/decorators/get-current-access-token.decorator';
+import { Request } from 'express';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -43,8 +45,9 @@ export class AuthController {
       },
     },
   })
-  register(@Body() registerDto: RegisterDto) {
-    return this.authService.register(registerDto);
+  register(@Body() registerDto: RegisterDto, @Req() req: Request) {
+    const lang = req.headers['accept-language']?.split(',')[0]?.substring(0, 2) || 'en';
+    return this.authService.register(registerDto, lang);
   }
 
   @Post('login')
@@ -68,8 +71,9 @@ export class AuthController {
       },
     },
   })
-  login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+  login(@Body() loginDto: LoginDto, @Req() req: Request) {
+    const lang = req.headers['accept-language']?.split(',')[0]?.substring(0, 2) || 'en';
+    return this.authService.login(loginDto, lang);
   }
 
   @UseGuards(AtGuard)
@@ -80,28 +84,33 @@ export class AuthController {
   logout(
     @GetCurrentUserId() userId: number,
     @GetCurrentAccessToken() accessToken: string,
+    @Req() req: Request,
   ) {
-    return this.authService.logout(userId, accessToken);
+    const lang = req.headers['accept-language']?.split(',')[0]?.substring(0, 2) || 'en';
+    return this.authService.logout(userId, accessToken, lang);
   }
 
   @Post('forgot-password')
   @ApiOperation({ summary: 'Forgot Password' })
   @HttpCode(HttpStatus.OK)
-  forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
-    return this.authService.forgotPassword(forgotPasswordDto);
+  forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto, @Req() req: Request) {
+    const lang = req.headers['accept-language']?.split(',')[0]?.substring(0, 2) || 'en';
+    return this.authService.forgotPassword(forgotPasswordDto, lang);
   }
 
   @Post('verify-otp')
   @ApiOperation({ summary: 'Verify OTP' })
   @HttpCode(HttpStatus.OK)
-  verifyOtp(@Body() verifyOtpDto: VerifyOtpDto) {
-    return this.authService.verifyOtp(verifyOtpDto);
+  verifyOtp(@Body() verifyOtpDto: VerifyOtpDto, @Req() req: Request) {
+    const lang = req.headers['accept-language']?.split(',')[0]?.substring(0, 2) || 'en';
+    return this.authService.verifyOtp(verifyOtpDto, lang);
   }
 
   @Post('reset-password')
   @ApiOperation({ summary: 'Reset Password' })
   @HttpCode(HttpStatus.OK)
-  resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
-    return this.authService.resetPassword(resetPasswordDto);
+  resetPassword(@Body() resetPasswordDto: ResetPasswordDto, @Req() req: Request) {
+    const lang = req.headers['accept-language']?.split(',')[0]?.substring(0, 2) || 'en';
+    return this.authService.resetPassword(resetPasswordDto, lang);
   }
 }

@@ -17,14 +17,12 @@ export class RegisterDto {
 
   @IsString()
   @IsNotEmpty()
-  @MinLength(8, { message: 'Password must be at least 8 characters long' })
+  @MinLength(6, { message: 'Password must be at least 6 characters long' })
   @MaxLength(50, { message: 'Password cannot exceed 50 characters' })
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, {
-    message: 'Password must contain uppercase, lowercase, number and special character',
-  })
+  // @Matches removed to allow simple passwords for dev
   @ApiProperty({
-    description: '密码（Body 字段），至少 8 位，必须包含大小写字母、数字和特殊字符',
-    example: 'Secret123!',
+    description: '密码（Body 字段），至少 6 位',
+    example: '123456',
   })
   password: string;
 

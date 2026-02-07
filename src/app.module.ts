@@ -1,5 +1,6 @@
 import { Module, NestModule, MiddlewareConsumer, RequestMethod } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { ScheduleModule } from '@nestjs/schedule';
 import { join } from 'path';
@@ -16,21 +17,24 @@ import { DogEventsModule } from './dog-events/dog-events.module';
 import { HomeModule } from './home/home.module';
 import { DictsModule } from './dicts/dicts.module';
 import { AiModule } from './ai/ai.module';
-import { AppI18nModule } from './i18n/i18n.module';
+import { I18nModule } from './i18n/i18n.module';
 import { S3Module } from './s3/s3.module';
 import { SocialModule } from './social/social.module';
 import { SimpleAuthMiddleware } from './common/middleware/simple-auth.middleware';
-import { JwtModule } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    ScheduleModule.forRoot(),
-    JwtModule.register({
-      global: true,
-      secret: 'realdog_hardcoded_secret_2026',
+    JwtModule.registerAsync({
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.get('JWT_SECRET') || 'change_this_to_secure_secret',
+        signOptions: { expiresIn: '7d' },
+      }),
+      inject: [ConfigService],
     }),
-    AppI18nModule,
+    ScheduleModule.forRoot(),
+    I18nModule,
     S3Module,
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'uploads'),

@@ -2,15 +2,17 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationGateway } from '../gateways/notification.gateway';
 import { CreateNotificationDto } from '../dto/create-notification.dto';
+import { I18nService } from '../../i18n/i18n.service';
 
 @Injectable()
 export class NotificationService {
   constructor(
     private prisma: PrismaService,
     private notificationGateway: NotificationGateway,
+    private i18nService: I18nService,
   ) {}
 
-  async createNotification(dto: CreateNotificationDto) {
+  async createNotification(dto: CreateNotificationDto, lang: string = 'en') {
     const notification = await this.prisma.notification.create({
       data: {
         userId: dto.userId,
@@ -36,7 +38,7 @@ export class NotificationService {
     return notification;
   }
 
-  async getUserNotifications(userId: number, page: number = 1, limit: number = 10, type?: string) {
+  async getUserNotifications(userId: number, page: number = 1, limit: number = 10, type?: string, lang: string = 'en') {
     const whereClause: any = { userId };
     
     if (type) {
@@ -70,17 +72,17 @@ export class NotificationService {
     };
   }
 
-  async markAsRead(notificationId: number, userId: number) {
+  async markAsRead(notificationId: number, userId: number, lang: string = 'en') {
     const notification = await this.prisma.notification.findUnique({
       where: { id: notificationId },
     });
 
     if (!notification) {
-      throw new NotFoundException('Notification not found');
+      throw new NotFoundException(this.i18nService.t('Notification not found', lang));
     }
 
     if (notification.userId !== userId) {
-      throw new ForbiddenException('Permission denied');
+      throw new ForbiddenException(this.i18nService.t('Permission denied', lang));
     }
 
     return await this.prisma.notification.update({
@@ -89,7 +91,7 @@ export class NotificationService {
     });
   }
 
-  async markAllAsRead(userId: number) {
+  async markAllAsRead(userId: number, lang: string = 'en') {
     return await this.prisma.notification.updateMany({
       where: { 
         userId,
@@ -99,7 +101,7 @@ export class NotificationService {
     });
   }
 
-  async getUnreadCount(userId: number) {
+  async getUnreadCount(userId: number, lang: string = 'en') {
     return await this.prisma.notification.count({
       where: {
         userId,
@@ -108,17 +110,17 @@ export class NotificationService {
     });
   }
 
-  async deleteNotification(notificationId: number, userId: number) {
+  async deleteNotification(notificationId: number, userId: number, lang: string = 'en') {
     const notification = await this.prisma.notification.findUnique({
       where: { id: notificationId },
     });
 
     if (!notification) {
-      throw new NotFoundException('Notification not found');
+      throw new NotFoundException(this.i18nService.t('Notification not found', lang));
     }
 
     if (notification.userId !== userId) {
-      throw new ForbiddenException('Permission denied');
+      throw new ForbiddenException(this.i18nService.t('Permission denied', lang));
     }
 
     return await this.prisma.notification.delete({
@@ -126,7 +128,7 @@ export class NotificationService {
     });
   }
 
-  async cleanupOldNotifications(days: number = 30) {
+  async cleanupOldNotifications(days: number = 30, lang: string = 'en') {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - days);
 

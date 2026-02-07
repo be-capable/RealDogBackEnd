@@ -3,10 +3,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreatePetDto } from './dto/create-pet.dto';
 import { UpdatePetDto } from './dto/update-pet.dto';
 import { Species } from './enums/pet.enum';
+import { I18nService } from '../i18n/i18n.service';
 
 @Injectable()
 export class PetsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private i18nService: I18nService,
+  ) {}
 
   async create(userId: number, createPetDto: CreatePetDto) {
     // Explicitly cast to any to bypass strict Prisma generated type checks
@@ -29,18 +33,18 @@ export class PetsService {
 
   async findAll(userId: number) {
     return this.prisma.pet.findMany({
-      where: { ownerId: userId, deletedAt: null } as any,
+      where: { ownerId: userId },
       include: { PetMedia_Pet_avatarMediaIdToPetMedia: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async findOne(userId: number, id: number) {
+  async findOne(userId: number, id: number, lang: string = 'en') {
     const pet = await this.prisma.pet.findFirst({
-      where: { id, ownerId: userId, deletedAt: null } as any,
+      where: { id, ownerId: userId },
       include: { PetMedia_Pet_avatarMediaIdToPetMedia: true, PetMedia_PetMedia_petIdToPet: true },
     });
-    if (!pet) throw new NotFoundException('Pet not found');
+    if (!pet) throw new NotFoundException(this.i18nService.t('Pet not found', lang));
     return pet;
   }
 
@@ -57,16 +61,20 @@ export class PetsService {
     });
   }
 
-  async remove(userId: number, id: number) {
-    const pet = await this.findOne(userId, id);
-    await this.prisma.pet.update({
+  async remove(userId: number, id: number, lang: string = 'en') {
+    const pet = await this.findOne(userId, id, lang);
+    await this.prisma.pet.delete({
       where: { id: pet.id },
-      data: { deletedAt: new Date() } as any,
     });
     return {
-      success: true,
-      message: 'Pet deleted successfully',
+      message: this.i18nService.t('Pet deleted successfully', lang),
       deletedId: pet.id,
     };
+  }
+
+  async findByOwnerId(ownerId: number) {
+    return await this.prisma.pet.findMany({
+      where: { ownerId },
+    });
   }
 }

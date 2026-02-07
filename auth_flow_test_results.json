@@ -1,17 +1,17 @@
 {
-  "timestamp": "2026-02-04T03:50:22.678Z",
+  "timestamp": "2026-02-04T04:46:37.656Z",
   "baseUrl": "http://localhost:3000/api",
   "summary": {
     "total": 24,
-    "passed": 19,
-    "failed": 2
+    "passed": 18,
+    "failed": 5
   },
   "tests": [
     {
       "name": "Health Check",
       "status": "PASS",
       "details": "Server is running",
-      "timestamp": "2026-02-04T03:50:22.695Z",
+      "timestamp": "2026-02-04T04:46:37.668Z",
       "statusCode": 200,
       "responseSize": 3261
     },
@@ -19,181 +19,179 @@
       "name": "Get Dog Breeds",
       "status": "PASS",
       "details": "Retrieved 0 breeds",
-      "timestamp": "2026-02-04T03:50:22.701Z",
+      "timestamp": "2026-02-04T04:46:37.672Z",
       "statusCode": 200,
       "responseSize": 1015
     },
     {
       "name": "User Registration",
       "status": "PASS",
-      "details": "Created user ID: 144",
-      "timestamp": "2026-02-04T03:50:22.779Z",
+      "details": "Created user ID: 2",
+      "timestamp": "2026-02-04T04:46:37.741Z",
       "statusCode": 201,
-      "responseSize": 360
+      "responseSize": 355
     },
     {
       "name": "User Login",
       "status": "PASS",
       "details": "Authentication successful",
-      "timestamp": "2026-02-04T03:50:22.830Z",
+      "timestamp": "2026-02-04T04:46:37.791Z",
       "statusCode": 200,
-      "responseSize": 360
+      "responseSize": 355
     },
     {
       "name": "Get Current User",
       "status": "PASS",
       "details": "User: Test User",
-      "timestamp": "2026-02-04T03:50:22.832Z",
+      "timestamp": "2026-02-04T04:46:37.793Z",
       "statusCode": 200,
-      "responseSize": 222
+      "responseSize": 220
     },
     {
       "name": "Get User By ID",
       "status": "PASS",
       "details": "Retrieved user: undefined",
-      "timestamp": "2026-02-04T03:50:22.833Z",
+      "timestamp": "2026-02-04T04:46:37.794Z",
       "statusCode": 200,
-      "responseSize": 222
+      "responseSize": 220
     },
     {
       "name": "Update User",
       "status": "PASS",
       "details": "User updated successfully",
-      "timestamp": "2026-02-04T03:50:22.835Z",
+      "timestamp": "2026-02-04T04:46:37.796Z",
       "statusCode": 200,
-      "responseSize": 230
+      "responseSize": 228
     },
     {
       "name": "Create Pet",
       "status": "PASS",
-      "details": "Pet ID: 49",
-      "timestamp": "2026-02-04T03:50:22.836Z",
+      "details": "Pet ID: 2",
+      "timestamp": "2026-02-04T04:46:37.798Z",
       "statusCode": 201,
-      "responseSize": 353
+      "responseSize": 361
     },
     {
       "name": "Get Pets List",
-      "status": "PASS",
-      "details": "Retrieved 1 pets",
-      "timestamp": "2026-02-04T03:50:22.837Z",
-      "statusCode": 200,
-      "responseSize": 399
+      "status": "FAIL",
+      "details": "Request failed with status code 500",
+      "timestamp": "2026-02-04T04:46:37.803Z"
     },
     {
       "name": "Get Pet Details",
-      "status": "PASS",
-      "details": "Pet: undefined",
-      "timestamp": "2026-02-04T03:50:22.838Z",
-      "statusCode": 200,
-      "responseSize": 431
+      "status": "FAIL",
+      "details": "Request failed with status code 500",
+      "timestamp": "2026-02-04T04:46:37.805Z"
     },
     {
       "name": "Update Pet",
-      "status": "PASS",
-      "details": "Pet updated successfully",
-      "timestamp": "2026-02-04T03:50:22.839Z",
-      "statusCode": 200,
-      "responseSize": 361
+      "status": "FAIL",
+      "details": "Request failed with status code 500",
+      "timestamp": "2026-02-04T04:46:37.806Z"
     },
     {
       "name": "Get Pet Media",
       "status": "PASS",
       "details": "Media list retrieved",
-      "timestamp": "2026-02-04T03:50:22.840Z",
+      "timestamp": "2026-02-04T04:46:37.808Z",
       "statusCode": 200,
       "responseSize": 131
     },
     {
       "name": "Create Pet Event",
       "status": "PASS",
-      "details": "Event ID: 71",
-      "timestamp": "2026-02-04T03:50:22.841Z",
+      "details": "Event ID: 2",
+      "timestamp": "2026-02-04T04:46:37.810Z",
       "statusCode": 201,
-      "responseSize": 298
+      "responseSize": 296
     },
     {
       "name": "Get Pet Events",
       "status": "PASS",
       "details": "Events list retrieved",
-      "timestamp": "2026-02-04T03:50:22.842Z",
+      "timestamp": "2026-02-04T04:46:37.811Z",
       "statusCode": 200,
-      "responseSize": 327
+      "responseSize": 325
     },
     {
       "name": "Get Event Details",
       "status": "PASS",
       "details": "Event: undefined",
-      "timestamp": "2026-02-04T03:50:22.843Z",
+      "timestamp": "2026-02-04T04:46:37.812Z",
       "statusCode": 200,
-      "responseSize": 361
+      "responseSize": 350
     },
     {
       "name": "Get Home Data",
       "status": "PASS",
       "details": "Home data retrieved",
-      "timestamp": "2026-02-04T03:50:22.844Z",
+      "timestamp": "2026-02-04T04:46:37.813Z",
       "statusCode": 200,
-      "responseSize": 918
+      "responseSize": 874
     },
     {
       "name": "AI Interpret",
       "status": "SKIP",
       "details": "Requires valid audio",
-      "timestamp": "2026-02-04T03:50:22.845Z"
+      "timestamp": "2026-02-04T04:46:37.814Z"
     },
     {
       "name": "AI Synthesize",
       "status": "FAIL",
       "details": "audio is required",
-      "timestamp": "2026-02-04T03:50:22.846Z"
+      "timestamp": "2026-02-04T04:46:37.815Z"
     },
     {
       "name": "AI Dialogue",
       "status": "FAIL",
       "details": "AI is not configured",
-      "timestamp": "2026-02-04T03:50:22.846Z"
+      "timestamp": "2026-02-04T04:46:37.816Z"
     },
     {
       "name": "Get Social Feed",
-      "status": "SKIP",
-      "details": "Internal server error: Request failed with status code 500",
-      "timestamp": "2026-02-04T03:50:22.848Z"
+      "status": "PASS",
+      "details": "Social feed retrieved",
+      "timestamp": "2026-02-04T04:46:37.818Z",
+      "statusCode": 200,
+      "responseSize": 147
     },
     {
       "name": "Create Social Post",
       "status": "PASS",
-      "details": "Post ID: 12",
-      "timestamp": "2026-02-04T03:50:22.849Z",
+      "details": "Post ID: 2",
+      "timestamp": "2026-02-04T04:46:37.820Z",
       "statusCode": 201,
-      "responseSize": 525
+      "responseSize": 501
     },
     {
       "name": "Like Social Post",
-      "status": "SKIP",
-      "details": "Internal server error: Request failed with status code 500",
-      "timestamp": "2026-02-04T03:50:22.851Z"
+      "status": "PASS",
+      "details": "Post liked successfully",
+      "timestamp": "2026-02-04T04:46:37.823Z",
+      "statusCode": 201,
+      "responseSize": 218
     },
     {
       "name": "Protected Endpoint Without Auth",
       "status": "PASS",
       "details": "Correctly rejected",
-      "timestamp": "2026-02-04T03:50:22.851Z",
+      "timestamp": "2026-02-04T04:46:37.823Z",
       "statusCode": 401,
-      "responseSize": 50
+      "responseSize": 125
     },
     {
       "name": "Logout",
       "status": "PASS",
       "details": "Logged out successfully",
-      "timestamp": "2026-02-04T03:50:22.852Z"
+      "timestamp": "2026-02-04T04:46:37.824Z"
     }
   ],
   "testData": {
-    "userId": 144,
-    "petId": 49,
-    "eventId": 71,
+    "userId": 2,
+    "petId": 2,
+    "eventId": 2,
     "mediaId": null,
-    "postId": 12,
+    "postId": 2,
     "commentId": null,
     "likeId": null
   }

@@ -2,25 +2,27 @@ import { Injectable, NotFoundException, ServiceUnavailableException } from '@nes
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Service } from '../s3/s3.service';
+import { I18nService } from '../i18n/i18n.service';
 
 @Injectable()
 export class PetMediaService {
   constructor(
     private prisma: PrismaService,
     private s3Service: S3Service,
+    private i18nService: I18nService,
   ) {}
 
-  private async assertPetOwnership(userId: number, petId: number) {
+  private async assertPetOwnership(userId: number, petId: number, lang: string = 'en') {
     const pet = await this.prisma.pet.findFirst({
       where: { id: petId, ownerId: userId },
       select: { id: true },
     });
-    if (!pet) throw new NotFoundException('Pet not found');
+    if (!pet) throw new NotFoundException(this.i18nService.t('Pet not found', lang));
   }
 
-  async uploadAvatar(petId: number, file: Express.Multer.File) {
+  async uploadAvatar(petId: number, file: Express.Multer.File, lang: string = 'en') {
     if (!this.s3Service.isConfigured()) {
-      throw new ServiceUnavailableException('Storage not configured');
+      throw new ServiceUnavailableException(this.i18nService.t('Storage not configured', lang));
     }
 
     const key = this.s3Service.generateMediaKey(petId, file.originalname, 'AVATAR');
@@ -50,12 +52,13 @@ export class PetMediaService {
     petId: number,
     file: Express.Multer.File,
     type: 'PHOTO' | 'VIDEO',
+    lang: string = 'en',
   ) {
     if (!this.s3Service.isConfigured()) {
-      throw new ServiceUnavailableException('Storage not configured');
+      throw new ServiceUnavailableException(this.i18nService.t('Storage not configured', lang));
     }
 
-    await this.assertPetOwnership(userId, petId);
+    await this.assertPetOwnership(userId, petId, lang);
     const key = this.s3Service.generateMediaKey(petId, file.originalname, type);
     const { url } = await this.s3Service.upload(file.buffer, key, file.mimetype);
 
@@ -71,8 +74,8 @@ export class PetMediaService {
     });
   }
 
-  async listByPet(userId: number, petId: number, page = 1, limit = 20) {
-    await this.assertPetOwnership(userId, petId);
+  async listByPet(userId: number, petId: number, page = 1, limit = 20, lang: string = 'en') {
+    await this.assertPetOwnership(userId, petId, lang);
 
     const [data, total] = await Promise.all([
       this.prisma.petMedia.findMany({
@@ -93,9 +96,9 @@ export class PetMediaService {
     };
   }
 
-  async deleteMedia(userId: number, mediaId: number) {
+  async deleteMedia(userId: number, mediaId: number, lang: string = 'en') {
     if (!this.s3Service.isConfigured()) {
-      throw new ServiceUnavailableException('Storage not configured');
+      throw new ServiceUnavailableException(this.i18nService.t('Storage not configured', lang));
     }
 
     const media = await this.prisma.petMedia.findFirst({
@@ -104,7 +107,7 @@ export class PetMediaService {
         Pet_PetMedia_petIdToPet: { ownerId: userId },
       },
     });
-    if (!media) throw new NotFoundException('Media not found');
+    if (!media) throw new NotFoundException(this.i18nService.t('Media not found', lang));
 
     if (media.type === 'AVATAR') {
       await this.prisma.pet.updateMany({
@@ -119,15 +122,15 @@ export class PetMediaService {
       await this.s3Service.delete(media.objectKey);
     } catch (_) {}
 
-    return { message: 'Deleted' };
+    return { message: this.i18nService.t('Deleted', lang) };
   }
 
-  async deleteAllByPet(userId: number, petId: number) {
+  async deleteAllByPet(userId: number, petId: number, lang: string = 'en') {
     if (!this.s3Service.isConfigured()) {
-      throw new ServiceUnavailableException('Storage not configured');
+      throw new ServiceUnavailableException(this.i18nService.t('Storage not configured', lang));
     }
 
-    await this.assertPetOwnership(userId, petId);
+    await this.assertPetOwnership(userId, petId, lang);
 
     const media = await this.prisma.petMedia.findMany({
       where: { petId },
@@ -143,6 +146,6 @@ export class PetMediaService {
       where: { petId },
     });
 
-    return { message: 'All media deleted' };
+    return { message: this.i18nService.t('All media deleted', lang) };
   }
 }

@@ -36,6 +36,10 @@ const mockS3Service = {
   delete: async () => {},
 };
 
+const mockI18nService = {
+  t: (key: string, lang: string = 'en') => key,
+};
+
 async function run() {
   console.log('--- Starting Human-to-Dog Synthesis Test ---');
   console.log('AI_STUB_MODE:', process.env.AI_STUB_MODE);
@@ -44,7 +48,7 @@ async function run() {
   const llm = new ArkLlmProvider();
   const tts = new VolcengineTtsProvider();
 
-  const service = new DogAiService(mockPrisma as any, mockS3Service as any, asr, llm, tts);
+  const service = new DogAiService(mockPrisma as any, mockS3Service as any, asr, llm, tts, mockI18nService as any);
 
   // Find a test file
   const audioDir = path.join(__dirname, '../uploads/dog-audio-input');

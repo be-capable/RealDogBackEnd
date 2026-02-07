@@ -36,24 +36,6 @@ export class DataRetentionService {
   }
 
   /**
-   * 清理过期的黑名单 token
-   * 黑名单中的 token 在其过期时间后自动删除
-   */
-  private async cleanupExpiredBlacklistedTokens() {
-    const now = new Date();
-    
-    const result = await this.prisma.blacklistedToken.deleteMany({
-      where: {
-        expiresAt: { lt: now },
-      },
-    });
-
-    if (result.count > 0) {
-      this.logger.log(`Deleted ${result.count} expired blacklisted tokens`);
-    }
-  }
-
-  /**
    * 清理24小时前的录音URL数据
    * 根据隐私政策：录音数据保留24小时后自动删除
    */
@@ -131,7 +113,6 @@ export class DataRetentionService {
   async manualCleanup(): Promise<{
     audioUrlsCleared: number;
     tasksDeleted: number;
-    blacklistedTokensDeleted: number;
     timestamp: string;
   }> {
     this.logger.log('Manual cleanup triggered');
@@ -161,16 +142,9 @@ export class DataRetentionService {
       },
     });
 
-    const blacklistedResult = await this.prisma.blacklistedToken.deleteMany({
-      where: {
-        expiresAt: { lt: now },
-      },
-    });
-
     return {
       audioUrlsCleared: audioResult.count,
       tasksDeleted: taskResult.count,
-      blacklistedTokensDeleted: blacklistedResult.count,
       timestamp: now.toISOString(),
     };
   }
@@ -181,7 +155,6 @@ export class DataRetentionService {
   async getRetentionStats(): Promise<{
     pendingAudioUrls: number;
     pendingTasks: number;
-    blacklistedTokensCount: number;
     nextCleanup: string;
   }> {
     const now = new Date();
@@ -205,12 +178,6 @@ export class DataRetentionService {
       },
     });
 
-    const blacklistedCount = await this.prisma.blacklistedToken.count({
-      where: {
-        expiresAt: { gt: now },
-      },
-    });
-
     // 计算下次清理时间（明天午夜）
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -219,7 +186,6 @@ export class DataRetentionService {
     return {
       pendingAudioUrls: pendingAudioCount,
       pendingTasks: pendingTaskCount,
-      blacklistedTokensCount: blacklistedCount,
       nextCleanup: tomorrow.toISOString(),
     };
   }

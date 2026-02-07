@@ -85,7 +85,7 @@ export class PetsController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     // Verify ownership
-    await this.petsService.findOne(userId, id);
+    await this.petsService.findOne(userId, id, 'en');
     return this.petMediaService.uploadAvatar(id, file);
   }
 
@@ -116,7 +116,7 @@ export class PetsController {
     @GetCurrentUserId() userId: number,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.petsService.findOne(userId, id);
+    return this.petsService.findOne(userId, id, 'en'); // Default to English, could extract from request headers if needed
   }
 
   /**
@@ -156,6 +156,6 @@ export class PetsController {
     @GetCurrentUserId() userId: number,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.petsService.remove(userId, id);
+    return this.petsService.remove(userId, id, 'en'); // Default to English, could extract from request headers if needed
   }
 }

@@ -2,15 +2,17 @@ import { Injectable, BadRequestException, ConflictException } from '@nestjs/comm
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from './notification.service';
 import { NotificationType } from '../enums/notification-type.enum';
+import { I18nService } from '../../i18n/i18n.service';
 
 @Injectable()
 export class RelationshipService {
   constructor(
     private prisma: PrismaService,
     private notificationService: NotificationService,
+    private i18nService: I18nService,
   ) {}
 
-  async follow(followerId: number, followingId: number) {
+  async follow(followerId: number, followingId: number, lang: string = 'en') {
     // 检查是否已经关注
     const existingFollow = await this.prisma.follow.findFirst({
       where: {
@@ -20,12 +22,12 @@ export class RelationshipService {
     });
 
     if (existingFollow) {
-      throw new ConflictException('Already following');
+      throw new ConflictException(this.i18nService.t('Already following', lang));
     }
 
     // 不能关注自己
     if (followerId === followingId) {
-      throw new BadRequestException('Cannot follow yourself');
+      throw new BadRequestException(this.i18nService.t('Cannot follow yourself', lang));
     }
 
     const follow = await this.prisma.follow.create({
@@ -56,13 +58,13 @@ export class RelationshipService {
       userId: followingId,
       senderId: followerId,
       type: NotificationType.FOLLOW as any, // 修复类型错误
-      content: `用户关注了你`,
-    });
+      content: this.i18nService.t('用户关注了你', lang),
+    }, lang);
 
     return follow;
   }
 
-  async unfollow(followerId: number, followingId: number) {
+  async unfollow(followerId: number, followingId: number, lang: string = 'en') {
     const follow = await this.prisma.follow.findFirst({
       where: {
         followerId,
@@ -71,17 +73,17 @@ export class RelationshipService {
     });
 
     if (!follow) {
-      throw new BadRequestException('Not following');
+      throw new BadRequestException(this.i18nService.t('Not following', lang));
     }
 
     await this.prisma.follow.delete({
       where: { id: follow.id },
     });
 
-    return { success: true, message: 'Unfollowed successfully' };
+    return { success: true, message: this.i18nService.t('Unfollowed successfully', lang) };
   }
 
-  async getFollowers(userId: number, page: number = 1, limit: number = 10) {
+  async getFollowers(userId: number, page: number = 1, limit: number = 10, lang: string = 'en') {
     const followers = await this.prisma.follow.findMany({
       where: { followingId: userId },
       include: {
@@ -110,7 +112,7 @@ export class RelationshipService {
     };
   }
 
-  async getFollowing(userId: number, page: number = 1, limit: number = 10) {
+  async getFollowing(userId: number, page: number = 1, limit: number = 10, lang: string = 'en') {
     const following = await this.prisma.follow.findMany({
       where: { followerId: userId },
       include: {
@@ -150,7 +152,7 @@ export class RelationshipService {
     return !!follow;
   }
 
-  async getFollowStatus(userId: number, targetUserId: number) {
+  async getFollowStatus(userId: number, targetUserId: number, lang: string = 'en') {
     const isFollowing = await this.isFollowing(userId, targetUserId);
     const isFollowedBy = await this.isFollowing(targetUserId, userId);
 
@@ -160,7 +162,7 @@ export class RelationshipService {
     };
   }
 
-  async getSuggestions(userId: number, limit: number = 10) {
+  async getSuggestions(userId: number, limit: number = 10, lang: string = 'en') {
     // 获取用户关注的人
     const followingIds = await this.prisma.follow.findMany({
       where: { followerId: userId },

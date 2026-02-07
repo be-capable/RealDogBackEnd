@@ -51,6 +51,7 @@ export class UsersController {
     description: 'Current user profile',
   })
   async getCurrentUser(@Req() req: Request) {
+    const lang = req.headers['accept-language']?.split(',')[0]?.substring(0, 2) || 'en';
     const user = (req as any).user;
     
     if (!user) {

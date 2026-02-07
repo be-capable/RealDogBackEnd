@@ -16,6 +16,7 @@ import { MailService } from '../mail/mail.service';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { I18nService } from '../i18n/i18n.service';
 
 @Injectable()
 export class AuthService {
@@ -26,9 +27,10 @@ export class AuthService {
     private jwtService: JwtService,
     private mailService: MailService,
     private configService: ConfigService,
+    private i18nService: I18nService,
   ) {}
 
-  async register(registerDto: RegisterDto) {
+  async register(registerDto: RegisterDto, lang: string = 'en') {
     const { email, password, name } = registerDto;
     const normalizedEmail = String(email ?? '').trim().toLowerCase();
 
@@ -37,7 +39,7 @@ export class AuthService {
     });
 
     if (existingUser) {
-      throw new ConflictException('User with this email already exists');
+      throw new ConflictException(this.i18nService.t('User with this email already exists', lang));
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -64,7 +66,7 @@ export class AuthService {
     };
   }
 
-  async login(loginDto: LoginDto) {
+  async login(loginDto: LoginDto, lang: string = 'en') {
     const { email, password } = loginDto;
     const normalizedEmail = String(email ?? '').trim().toLowerCase();
 
@@ -73,13 +75,13 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException(this.i18nService.t('Invalid email or password', lang));
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException(this.i18nService.t('Invalid email or password', lang));
     }
 
     const token = await this.generateToken(user);
@@ -94,11 +96,24 @@ export class AuthService {
     };
   }
 
-  async logout(userId: number, accessToken: string) {
-    // 登出功能：目前只返回成功消息
-    // 如需实现安全登出，可考虑其他方案（如短期令牌黑名单或服务端会话跟踪）
-    // 当前实现依赖JWT自然过期机制
-    return { message: 'Logged out successfully' };
+  async logout(userId: number, accessToken: string, lang: string = 'en') {
+    try {
+      const decoded = this.jwtService.decode(accessToken);
+      if (decoded && decoded['exp']) {
+        const expiresAt = new Date(decoded['exp'] * 1000);
+        await this.prisma.blacklistedToken.upsert({
+          where: { token: accessToken },
+          update: { expiresAt },
+          create: {
+            token: accessToken,
+            expiresAt,
+          },
+        });
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to blacklist token during logout: ${error}`);
+    }
+    return { message: this.i18nService.t('Logged out successfully', lang) };
   }
 
   async generateToken(user: any) {
@@ -108,7 +123,7 @@ export class AuthService {
     });
   }
 
-  async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
+  async forgotPassword(forgotPasswordDto: ForgotPasswordDto, lang: string = 'en') {
     const { email } = forgotPasswordDto;
     const normalizedEmail = String(email ?? '').trim().toLowerCase();
     const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
@@ -126,36 +141,36 @@ export class AuthService {
       await this.mailService.sendOtp(normalizedEmail, otp);
     }
 
-    return { message: 'If the email exists, an OTP has been sent' };
+    return { message: this.i18nService.t('If the email exists, an OTP has been sent', lang) };
   }
 
-  async verifyOtp(verifyOtpDto: VerifyOtpDto) {
+  async verifyOtp(verifyOtpDto: VerifyOtpDto, lang: string = 'en') {
     const { email, otp } = verifyOtpDto;
     const normalizedEmail = String(email ?? '').trim().toLowerCase();
     const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (!user) {
-      throw new BadRequestException('Invalid or expired OTP');
+      throw new BadRequestException(this.i18nService.t('Invalid or expired OTP', lang));
     }
 
     if (user.otp !== otp || !user.otpExpiry || user.otpExpiry < new Date()) {
-      throw new BadRequestException('Invalid or expired OTP');
+      throw new BadRequestException(this.i18nService.t('Invalid or expired OTP', lang));
     }
 
-    return { message: 'OTP verified successfully' };
+    return { message: this.i18nService.t('OTP verified successfully', lang) };
   }
 
-  async resetPassword(resetPasswordDto: ResetPasswordDto) {
+  async resetPassword(resetPasswordDto: ResetPasswordDto, lang: string = 'en') {
     const { email, otp, newPassword } = resetPasswordDto;
     const normalizedEmail = String(email ?? '').trim().toLowerCase();
     const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (!user) {
-      throw new BadRequestException('Invalid or expired OTP');
+      throw new BadRequestException(this.i18nService.t('Invalid or expired OTP', lang));
     }
 
     if (user.otp !== otp || !user.otpExpiry || user.otpExpiry < new Date()) {
-      throw new BadRequestException('Invalid or expired OTP');
+      throw new BadRequestException(this.i18nService.t('Invalid or expired OTP', lang));
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
@@ -169,6 +184,6 @@ export class AuthService {
       },
     });
 
-    return { message: 'Password reset successfully' };
+    return { message: this.i18nService.t('Password reset successfully', lang) };
   }
 }
